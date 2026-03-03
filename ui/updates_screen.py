@@ -55,38 +55,22 @@ class UpdatesScreen(BaseScreen):
     # ------------------------------------------------------------------
 
     def _build_filter_buttons(self, parent):
-        """Create modern filter chips with status indicators."""
-        # Filters container
-        filters_label = tk.Label(parent, text="FILTERS •", font=("Segoe UI", 8, "bold"),
-                                fg="#9ca3af", bg="#1a1f3a")
-        filters_label.pack(side="left", padx=(8, 4))
-        
-        # Latest filter chip
-        self.btn_latest = tk.Button(
-            parent, text="✓ Latest",
-            command=self._toggle_latest,
-            bg="#2a3f5f", relief="solid", width=10, cursor="hand2",
-            fg="#9ca3af", activebackground="#60a5fa", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_latest.pack(side="left", padx=(2, 4))
-        
-        # Outdated filter chip
-        self.btn_outdated = tk.Button(
-            parent, text="⚠ Old Update",
-            command=self._toggle_outdated,
-            bg="#2a3f5f", relief="solid", width=12, cursor="hand2",
-            fg="#9ca3af", activebackground="#ef4444", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_outdated.pack(side="left", padx=(2, 4))
-        
-        # Base games filter chip
-        self.btn_base = tk.Button(
-            parent, text="🎮 Base",
-            command=self._toggle_base,
-            bg="#2a3f5f", relief="solid", width=8, cursor="hand2",
-            fg="#9ca3af", activebackground="#06d6d0", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_base.pack(side="left", padx=(2, 0))
+        """Filter chips — styled Labels, no Windows 95 buttons."""
+        from constants import UI_FONT, FONT_BOOST
+        _F = FONT_BOOST
+
+        def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
+            lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
+                           font=(UI_FONT, 8 + _F, "bold"), cursor="hand2", padx=10, pady=3)
+            lbl.bind("<Button-1>", lambda e: cmd())
+            return lbl
+
+        self.btn_latest  = _chip("✓ Latest",    self._toggle_latest)
+        self.btn_outdated = _chip("⚠ Old Update", self._toggle_outdated)
+        self.btn_base    = _chip("🎮 Base",      self._toggle_base)
+        self.btn_latest.pack(side="left", padx=(0, 4))
+        self.btn_outdated.pack(side="left", padx=(0, 4))
+        self.btn_base.pack(side="left")
 
     def _toggle_latest(self):
         self.hide_latest = not self.hide_latest

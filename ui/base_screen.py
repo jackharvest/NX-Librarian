@@ -172,75 +172,52 @@ class BaseScreen(tk.Frame):
         self._build_statusbar()
 
     def _build_header(self):
-        """Revolutionary modern header with dynamic dashboard look."""
-        # Top navigation bar
-        nav_bar = tk.Frame(self, bg=THEME["bg_secondary"], 
-                          highlightthickness=1, highlightbackground=THEME["border_subtle"])
-        nav_bar.pack(fill="x")
-        
-        nav_inner = tk.Frame(nav_bar, bg=THEME["bg_secondary"], padx=28, pady=16)
-        nav_inner.pack(fill="x")
-        
-        # ── Back button ────────────────────────────────────────────────
-        back_btn = tk.Label(nav_inner, text="< BACK",
-                            bg=THEME["border_light"], fg=THEME["text_secondary"],
-                            font=(UI_FONT, 9 + _F, "bold"),
-                            cursor="hand2", padx=12, pady=6)
-        back_btn.bind("<Button-1>", lambda e: self._on_back())
-        back_btn.bind("<Enter>", lambda e: back_btn.config(bg=THEME["bg_tertiary"], fg=THEME["accent_primary"]))
-        back_btn.bind("<Leave>", lambda e: back_btn.config(bg=THEME["border_light"], fg=THEME["text_secondary"]))
-        back_btn.pack(side="left")
-        
-        # ── Mode title ─────────────────────────────────────────────────
-        title_frame = tk.Frame(nav_inner, bg=THEME["bg_secondary"])
-        title_frame.pack(side="left", padx=(20, 0), fill="x", expand=True)
-        
-        tk.Label(title_frame, text=self.MODE_LABEL,
-                font=(UI_FONT, 14 + _F, "bold"),
-                fg=THEME["text_primary"], bg=THEME["bg_secondary"]).pack(anchor="w")
+        """Compact single-row nav: accent stripe | back | title | path | browse | scan."""
+        nav = tk.Frame(self, bg=THEME["bg_secondary"],
+                       highlightthickness=1, highlightbackground=THEME["border_subtle"])
+        nav.pack(fill="x")
 
-        tk.Label(title_frame, text="Live library management & organization",
-                font=(UI_FONT, 9 + _F),
-                fg=THEME["text_secondary"], bg=THEME["bg_secondary"]).pack(anchor="w", pady=(2, 0))
-        
-        # ── Action buttons on right ────────────────────────────────────
-        action_frame = tk.Frame(nav_inner, bg=THEME["bg_secondary"])
-        action_frame.pack(side="right")
-        
-        scan_btn = self._create_button(action_frame, "⟳ SCAN", self.scan, primary=True)
-        scan_btn.pack(side="left")
-        
-        # ════════════════════════════════════════════════════════════════
-        # Control panel below navigation
-        # ════════════════════════════════════════════════════════════════
-        control_panel = tk.Frame(self, bg=THEME["bg_primary"])
-        control_panel.pack(fill="x", padx=20, pady=(16, 12))
-        
-        # Folder selection area
-        folder_section = tk.Frame(control_panel, bg=THEME["bg_raised"],
-                                 highlightthickness=1,
-                                 highlightbackground=THEME["border_subtle"])
-        folder_section.pack(fill="x", pady=(0, 12))
-        
-        folder_inner = tk.Frame(folder_section, bg=THEME["bg_raised"])
-        folder_inner.pack(fill="x", padx=16, pady=12)
-        
-        tk.Label(folder_inner, text="📁 Library Path", font=(UI_FONT, 9 + _F, "bold"),
-                fg=THEME["text_secondary"], bg=THEME["bg_raised"]).pack(anchor="w", pady=(0, 6))
-        
-        folder_controls = tk.Frame(folder_inner, bg=THEME["bg_raised"])
-        folder_controls.pack(fill="x")
-        
-        path_entry = tk.Entry(folder_controls, textvariable=self.target_folder,
-                             font=(UI_FONT, 10 + _F),
-                             bg=THEME["bg_tertiary"], fg=THEME["text_primary"],
-                             relief="solid", bd=1, insertbackground=THEME["accent_primary"],
-                             highlightthickness=0,
-                             width=60)
-        path_entry.pack(side="left", fill="x", expand=True)
-        
-        browse_btn = self._create_button(folder_controls, "BROWSE", self._browse)
-        browse_btn.pack(side="left", padx=(8, 0))
+        # Left accent stripe — color-coded per mode
+        tk.Frame(nav, bg=self.ACCENT_COLOR, width=4).pack(side="left", fill="y")
+
+        inner = tk.Frame(nav, bg=THEME["bg_secondary"])
+        inner.pack(side="left", fill="both", expand=True, padx=(16, 20), pady=14)
+
+        # ── Back (ghost link, accent on hover)
+        back = tk.Label(inner, text="← BACK", bg=THEME["bg_secondary"],
+                        fg=THEME["text_muted"], font=(UI_FONT, 9 + _F, "bold"),
+                        cursor="hand2")
+        back.bind("<Button-1>", lambda e: self._on_back())
+        back.bind("<Enter>",    lambda e: back.config(fg=self.ACCENT_COLOR))
+        back.bind("<Leave>",    lambda e: back.config(fg=THEME["text_muted"]))
+        back.pack(side="left")
+
+        # Vertical divider
+        tk.Frame(inner, bg=THEME["border_subtle"], width=1).pack(
+            side="left", fill="y", padx=(12, 16))
+
+        # Mode title
+        tk.Label(inner, text=self.MODE_LABEL,
+                 font=(UI_FONT, 13 + _F, "bold"),
+                 fg=THEME["text_primary"], bg=THEME["bg_secondary"]).pack(side="left")
+
+        # ── Right: SCAN → BROWSE → path entry (fills center)
+        scan_btn = self._create_button(inner, "⟳  SCAN", self.scan, primary=True)
+        scan_btn.pack(side="right")
+
+        browse_btn = self._create_button(inner, "BROWSE", self._browse)
+        browse_btn.pack(side="right", padx=(0, 10))
+
+        # Path entry — fills remaining space, accent border on focus
+        path_entry = tk.Entry(inner, textvariable=self.target_folder,
+                              font=(UI_FONT, 10 + _F),
+                              bg=THEME["bg_primary"], fg=THEME["text_secondary"],
+                              relief="flat", bd=0,
+                              insertbackground=self.ACCENT_COLOR,
+                              highlightthickness=1,
+                              highlightbackground=THEME["border_subtle"],
+                              highlightcolor=self.ACCENT_COLOR)
+        path_entry.pack(side="left", fill="x", expand=True, padx=(24, 0), ipady=6)
 
     def _create_button(self, parent, text, command, primary=False):
         """Create a styled Label-based button (works correctly on macOS and Windows)."""
@@ -275,7 +252,7 @@ class BaseScreen(tk.Frame):
         """Modern data table with enhanced styling and interactivity."""
         # Container with empty state overlay capability
         self.table_container = tk.Frame(self, bg=THEME["bg_primary"])
-        self.table_container.pack(fill="both", expand=True, padx=20, pady=12)
+        self.table_container.pack(fill="both", expand=True, padx=16, pady=(8, 0))
         
         # Table header
         table_header = tk.Frame(self.table_container, bg=THEME["bg_secondary"],
@@ -324,10 +301,13 @@ class BaseScreen(tk.Frame):
                                 relief="solid", bd=1,
                                 insertbackground=THEME["accent_primary"],
                                 highlightthickness=0)
-        search_entry.pack(side="left", fill="x", expand=True)
+        search_entry.pack(side="left", fill="x", expand=True, ipady=2)
 
+        # Subtle divider before mode-specific filter chips
+        tk.Frame(left_frame, bg=THEME["border_subtle"], width=1).pack(
+            side="left", fill="y", padx=(14, 10))
         filters_frame = tk.Frame(left_frame, bg=THEME["bg_secondary"])
-        filters_frame.pack(side="left", padx=(10, 0))
+        filters_frame.pack(side="left")
         self._build_filter_buttons(filters_frame)
         
         # Main table with scrollbar

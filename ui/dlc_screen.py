@@ -37,7 +37,7 @@ _COLUMNS = [
 class DLCScreen(BaseScreen):
     MODE_KEY     = "dlc"
     MODE_LABEL   = "DLC & ADD-ONS CENTER"
-    ACCENT_COLOR = "#06d6d0"
+    ACCENT_COLOR = "#009640"
     COLUMNS      = _COLUMNS
 
     def __init__(self, *args, **kwargs):
@@ -50,25 +50,20 @@ class DLCScreen(BaseScreen):
     # ------------------------------------------------------------------
 
     def _build_filter_buttons(self, parent):
-        filters_label = tk.Label(parent, text="FILTERS •", font=("Segoe UI", 8, "bold"),
-                                fg="#9ca3af", bg="#1a1f3a")
-        filters_label.pack(side="left", padx=(8, 4))
+        """Filter chips — styled Labels."""
+        from constants import UI_FONT, FONT_BOOST
+        _F = FONT_BOOST
 
-        self.btn_wrong_region = tk.Button(
-            parent, text="✗ Wrong Region",
-            command=self._toggle_wrong_region,
-            bg="#2a3f5f", relief="solid", width=15, cursor="hand2",
-            fg="#9ca3af", activebackground="#ef4444", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_wrong_region.pack(side="left", padx=(2, 4))
+        def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
+            lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
+                           font=(UI_FONT, 8 + _F, "bold"), cursor="hand2", padx=10, pady=3)
+            lbl.bind("<Button-1>", lambda e: cmd())
+            return lbl
 
-        self.btn_partial = tk.Button(
-            parent, text="⚠ Partial",
-            command=self._toggle_partial,
-            bg="#2a3f5f", relief="solid", width=10, cursor="hand2",
-            fg="#9ca3af", activebackground="#f97316", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_partial.pack(side="left", padx=(2, 0))
+        self.btn_wrong_region = _chip("✗ Wrong Region", self._toggle_wrong_region)
+        self.btn_partial      = _chip("⚠ Partial",      self._toggle_partial)
+        self.btn_wrong_region.pack(side="left", padx=(0, 4))
+        self.btn_partial.pack(side="left")
 
     def _toggle_wrong_region(self):
         self.hide_wrong_region = not self.hide_wrong_region

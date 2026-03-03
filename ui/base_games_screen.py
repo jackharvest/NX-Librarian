@@ -50,29 +50,20 @@ class BaseGamesScreen(BaseScreen):
     # ------------------------------------------------------------------
 
     def _build_filter_buttons(self, parent):
-        """Create modern filter chips."""
-        # Filters label
-        filters_label = tk.Label(parent, text="FILTERS •", font=("Segoe UI", 8, "bold"),
-                                fg="#9ca3af", bg="#1a1f3a")
-        filters_label.pack(side="left", padx=(8, 4))
-        
-        # Has update filter chip
-        self.btn_has_update = tk.Button(
-            parent, text="⬆ Has Update",
-            command=self._toggle_has_update,
-            bg="#2a3f5f", relief="solid", width=13, cursor="hand2",
-            fg="#9ca3af", activebackground="#60a5fa", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_has_update.pack(side="left", padx=(2, 4))
+        """Filter chips — styled Labels."""
+        from constants import UI_FONT, FONT_BOOST
+        _F = FONT_BOOST
 
-        # No update filter chip
-        self.btn_no_update = tk.Button(
-            parent, text="⚠ No Update",
-            command=self._toggle_no_update,
-            bg="#2a3f5f", relief="solid", width=13, cursor="hand2",
-            fg="#9ca3af", activebackground="#f97316", activeforeground="#0a0a14",
-            font=("Segoe UI", 8, "bold"), bd=1)
-        self.btn_no_update.pack(side="left", padx=(2, 0))
+        def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
+            lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
+                           font=(UI_FONT, 8 + _F, "bold"), cursor="hand2", padx=10, pady=3)
+            lbl.bind("<Button-1>", lambda e: cmd())
+            return lbl
+
+        self.btn_has_update = _chip("⬆ Has Update", self._toggle_has_update)
+        self.btn_no_update  = _chip("⚠ No Update",  self._toggle_no_update)
+        self.btn_has_update.pack(side="left", padx=(0, 4))
+        self.btn_no_update.pack(side="left")
 
     def _toggle_has_update(self):
         self.hide_has_update = not self.hide_has_update
