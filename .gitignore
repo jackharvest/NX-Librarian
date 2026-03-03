@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Auto-generated logs
+region_debug.log
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code session data
+.claude/
+
+# Editor
+.vscode/
+*.swp
