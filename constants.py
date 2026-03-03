@@ -11,8 +11,9 @@ UI_FONT = "Helvetica Neue" if sys.platform == "darwin" else "Segoe UI"
 # Font size boost on macOS (Helvetica renders slightly smaller than Segoe UI)
 FONT_BOOST = 2 if sys.platform == "darwin" else 0
 
-APP_NAME    = "NX-Librarian"
-APP_VERSION = "2.0"
+APP_NAME      = "NX-Librarian"
+APP_VERSION   = "2.2.0"
+APP_COPYRIGHT = "© 2026 jackharvest / NX-Librarian Contributors"
 
 # --- File paths ---
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".nxlibrarian_config.ini")

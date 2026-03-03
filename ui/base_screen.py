@@ -20,7 +20,7 @@ from tkinter import filedialog, ttk
 import configparser
 import threading
 
-from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST
+from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST, APP_VERSION, APP_COPYRIGHT
 
 _F = FONT_BOOST  # shorthand
 
@@ -61,10 +61,11 @@ class BaseScreen(tk.Frame):
     ACCENT_COLOR   = THEME["accent_primary"]
     COLUMNS        = []
 
-    def __init__(self, parent, on_back, logo_img=None, norm_v=None, norm_t=None, norm_c=None, **kwargs):
+    def __init__(self, parent, on_back, logo_img=None, norm_v=None, norm_t=None, norm_c=None, navigate_to=None, **kwargs):
         super().__init__(parent, bg=THEME["bg_primary"], **kwargs)
-        self._on_back  = on_back
+        self._on_back   = on_back
         self._logo_img  = logo_img
+        self.navigate_to = navigate_to
         self.norm_v     = norm_v or {}
         self.norm_t     = norm_t or {}
         self.norm_c     = norm_c or {}
@@ -168,8 +169,8 @@ class BaseScreen(tk.Frame):
 
     def _build_ui(self):
         self._build_header()
-        self._build_table()
         self._build_statusbar()
+        self._build_table()
 
     def _build_header(self):
         """Compact single-row nav: accent stripe | back | title | path | browse | scan."""
@@ -209,7 +210,7 @@ class BaseScreen(tk.Frame):
         browse_btn.pack(side="right", padx=(0, 10))
 
         # Path entry — fills remaining space, accent border on focus
-        path_entry = tk.Entry(inner, textvariable=self.target_folder,
+        self.path_entry = tk.Entry(inner, textvariable=self.target_folder,
                               font=(UI_FONT, 10 + _F),
                               bg=THEME["bg_primary"], fg=THEME["text_secondary"],
                               relief="flat", bd=0,
@@ -217,7 +218,7 @@ class BaseScreen(tk.Frame):
                               highlightthickness=1,
                               highlightbackground=THEME["border_subtle"],
                               highlightcolor=self.ACCENT_COLOR)
-        path_entry.pack(side="left", fill="x", expand=True, padx=(24, 0), ipady=6)
+        self.path_entry.pack(side="left", fill="x", expand=True, padx=(24, 0), ipady=6)
 
     def _create_button(self, parent, text, command, primary=False):
         """Create a styled Label-based button (works correctly on macOS and Windows)."""
@@ -332,6 +333,12 @@ class BaseScreen(tk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         self._vsb.pack(side="right", fill="y")
 
+        # Cross-screen navigation
+        self.tree.bind("<Double-1>",      self._on_row_double_click)
+        self.tree.bind("<Button-1>",      self._on_row_click)
+        self.tree.bind("<Motion>",        self._on_tree_motion)
+        self.tree.bind("<Leave>",         lambda e: self.tree.config(cursor=""))
+
         # Reposition Fix Name buttons on keyboard scroll and window resize
         self.tree.bind("<KeyRelease>",  lambda e: self._schedule_fix_buttons())
         self.tree.bind("<Configure>",   lambda e: self._schedule_fix_buttons())
@@ -392,33 +399,42 @@ class BaseScreen(tk.Frame):
     # ------------------------------------------------------------------
 
     def _build_statusbar(self):
-        """Modern status bar with analytics and quick actions."""
-        bar = tk.Frame(self, bg=THEME["bg_secondary"], 
-                      highlightthickness=1, highlightbackground=THEME["border_subtle"],
-                      padx=24, pady=14)
+        """Status bar: status | copyright + version | cache age + sync."""
+        bar = tk.Frame(self, bg=THEME["bg_secondary"],
+                       highlightthickness=1, highlightbackground=THEME["border_subtle"])
         bar.pack(side="bottom", fill="x")
-        
-        # Left status info
+
+        # Three equal-weight columns so the center is always truly centered
+        bar.columnconfigure(0, weight=1)
+        bar.columnconfigure(1, weight=0)
+        bar.columnconfigure(2, weight=1)
+
+        # Left — scan status
         left_section = tk.Frame(bar, bg=THEME["bg_secondary"])
-        left_section.pack(side="left", fill="x", expand=True)
-        
+        left_section.grid(row=0, column=0, sticky="w", padx=(24, 0), pady=10)
+
         self.status_lbl = tk.Label(left_section, text="✓ Ready",
-                                  bg=THEME["bg_secondary"],
-                                  fg="#10b981", font=(UI_FONT, 9 + _F, "bold"))
+                                   bg=THEME["bg_secondary"],
+                                   fg="#10b981", font=(UI_FONT, 9 + _F, "bold"))
         self.status_lbl.pack(side="left")
 
-        # Right section with cache info and refresh
+        # Center — copyright + version (always geometrically centered)
+        tk.Label(bar, text=f"{APP_COPYRIGHT}  ·  v{APP_VERSION}",
+                 bg=THEME["bg_secondary"], fg=THEME["text_muted"],
+                 font=(UI_FONT, 8 + _F)).grid(row=0, column=1, pady=10)
+
+        # Right — cache age + sync button
         right_section = tk.Frame(bar, bg=THEME["bg_secondary"])
-        right_section.pack(side="right", fill="x")
+        right_section.grid(row=0, column=2, sticky="e", padx=(0, 24), pady=10)
 
         self.cache_lbl = tk.Label(right_section, text="", bg=THEME["bg_secondary"],
-                                 fg=THEME["text_muted"], font=(UI_FONT, 8 + _F))
+                                  fg=THEME["text_muted"], font=(UI_FONT, 8 + _F))
         self.cache_lbl.pack(side="left", padx=(0, 16))
 
         self.dl_btn = tk.Label(right_section, text="🔄 SYNC DATABASE",
-                              fg=THEME["accent_primary"],
-                              bg=THEME["bg_secondary"], font=(UI_FONT, 8 + _F, "bold"),
-                              cursor="hand2", relief="flat")
+                               fg=THEME["accent_primary"],
+                               bg=THEME["bg_secondary"], font=(UI_FONT, 8 + _F, "bold"),
+                               cursor="hand2", relief="flat")
         self.dl_btn.pack(side="left")
         self.dl_btn.bind("<Button-1>", lambda e: self.scan(force_refresh=True))
     
@@ -433,6 +449,14 @@ class BaseScreen(tk.Frame):
         }
         color = colors.get(status_type, "#60a5fa")
         self.status_lbl.config(text=message, fg=color)
+
+    # ------------------------------------------------------------------
+    # Cross-screen navigation
+    # ------------------------------------------------------------------
+
+    def _on_row_double_click(self, event):
+        """Override in subclasses to handle cross-screen navigation."""
+        pass
 
     # ------------------------------------------------------------------
     # Sorting
@@ -452,13 +476,42 @@ class BaseScreen(tk.Frame):
     # Right-click copy
     # ------------------------------------------------------------------
 
+    def _on_row_click(self, event):
+        """Override in subclasses for single-click column actions."""
+        pass
+
+    def _on_tree_motion(self, event):
+        """Override in subclasses to change cursor based on hovered column."""
+        pass
+
+    def _add_nav_ctx_items(self, iid, add_fn):
+        """Override in subclasses to add navigation items to the context menu."""
+        pass
+
     def _show_ctx_menu(self, event):
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if iid:
-            self.tree.selection_set(iid)
-            self._ctx_col = col
-            self._ctx_menu.tk_popup(event.x_root, event.y_root)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        self._ctx_col = col
+
+        # Trim any nav items added by a previous right-click (indices 0-3 are the
+        # permanent Copy Cell / Copy Row / separator / Copy All items)
+        end_idx = self._ctx_menu.index("end")
+        if end_idx is not None and end_idx >= 4:
+            self._ctx_menu.delete(4, end_idx)
+
+        nav_items_added = [False]
+
+        def _add(label, cmd):
+            if not nav_items_added[0]:
+                self._ctx_menu.add_separator()
+                nav_items_added[0] = True
+            self._ctx_menu.add_command(label=label, command=cmd)
+
+        self._add_nav_ctx_items(iid, _add)
+        self._ctx_menu.tk_popup(event.x_root, event.y_root)
 
     def _copy_cell(self):
         sel = self.tree.selection()

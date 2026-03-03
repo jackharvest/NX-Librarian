@@ -252,3 +252,64 @@ class BaseGamesScreen(BaseScreen):
             self.tree.item(item, tags=(stripe_tag,))
 
         self._schedule_fix_buttons()
+
+    # ------------------------------------------------------------------
+    # Cross-screen navigation
+    # ------------------------------------------------------------------
+
+    def _nav_col_key(self, event):
+        """Return column key under the cursor, or None if not a nav column."""
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            return None
+        col = self.tree.identify_column(event.x)
+        try:
+            return self.COLUMNS[int(col[1:]) - 1][0]
+        except IndexError:
+            return None
+
+    def _on_tree_motion(self, event):
+        col_key = self._nav_col_key(event)
+        iid = self.tree.identify_row(event.y)
+        if not iid or col_key not in ("has_update", "has_dlc"):
+            self.tree.config(cursor="")
+            return
+        val = self.tree.set(iid, col_key)
+        self.tree.config(cursor="hand2" if val and val != "—" else "")
+
+    def _on_row_click(self, event):
+        """Single-click UPDATE? / DLC? cells → navigate."""
+        if not self.navigate_to:
+            return
+        col_key = self._nav_col_key(event)
+        if col_key not in ("has_update", "has_dlc"):
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        val = self.tree.set(iid, col_key)
+        if not val or val == "—":
+            return
+        tid = self.tree.set(iid, "tid").lower()
+        if col_key == "has_update":
+            self.navigate_to("updates", tid)
+        elif col_key == "has_dlc":
+            self.navigate_to("dlc", tid)
+
+    def _on_row_double_click(self, event):
+        """Double-click also navigates (same as single-click for these columns)."""
+        self._on_row_click(event)
+
+    def _add_nav_ctx_items(self, iid, add_fn):
+        if not self.navigate_to:
+            return
+        tid = self.tree.set(iid, "tid").lower()
+        has_update = self.tree.set(iid, "has_update")
+        has_dlc    = self.tree.set(iid, "has_dlc")
+        fname      = self.tree.set(iid, "filename")
+        short      = fname[:40] + "…" if len(fname) > 40 else fname
+        if has_update and has_update != "—":
+            add_fn(f"⬆  Show Update for {short}",
+                   lambda t=tid: self.navigate_to("updates", t))
+        if has_dlc and has_dlc != "—":
+            add_fn(f"🎮 Show DLC for {short}",
+                   lambda t=tid: self.navigate_to("dlc", t))

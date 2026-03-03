@@ -173,7 +173,7 @@ class DLCScreen(BaseScreen):
                     "_quality":         "bad_name" if is_bad_name else "ok",
                 })
 
-        self.all_data.sort(key=lambda x: (x["parent_name"].lower(), x["filename"].lower()))
+        self.all_data.sort(key=lambda x: x["filename"].lower())
 
         # ------------------------------------------------------------------
         # Post-scan: compute completeness status per item
@@ -284,3 +284,33 @@ class DLCScreen(BaseScreen):
             self.tree.item(iid, tags=(stripe_tag,) + tuple(existing))
 
         self._schedule_fix_buttons()
+
+    # ------------------------------------------------------------------
+    # Cross-screen navigation
+    # ------------------------------------------------------------------
+
+    def _add_nav_ctx_items(self, iid, add_fn):
+        if not self.navigate_to:
+            return
+        tid_upper = self.tree.set(iid, "tid")
+        for item in self.all_data:
+            if item["tid"] == tid_upper:
+                fname = item["filename"]
+                short = fname[:40] + "…" if len(fname) > 40 else fname
+                add_fn(f"🎮 Jump to Base Game for {short}",
+                       lambda t=item["parent_tid"]: self.navigate_to("base", t))
+                return
+
+    def _on_row_double_click(self, event):
+        """Double-click any DLC row → jump to Base Games for the parent game."""
+        if not self.navigate_to:
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        tid_upper = self.tree.set(iid, "tid")
+        for item in self.all_data:
+            if item["tid"] == tid_upper:
+                self.navigate_to("base", item["parent_tid"])
+                return
+

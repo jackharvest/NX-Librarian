@@ -196,6 +196,7 @@ class UpdatesScreen(BaseScreen):
                         "filename": fname,
                         "filepath": os.path.join(root_dir, fname),
                         "tid": tid.upper(),
+                        "base_tid": base_tid,
                         "cur_ver": "v0",
                         "lat_ver": "—",
                         "cur_int": 0,
@@ -238,6 +239,7 @@ class UpdatesScreen(BaseScreen):
                     "filename": fname,
                     "filepath": os.path.join(root_dir, fname),
                     "tid": tid.upper(),
+                    "base_tid": base_tid,
                     "cur_ver": cur_d,
                     "lat_ver": lat_d,
                     "cur_int": cur_i,
@@ -312,3 +314,33 @@ class UpdatesScreen(BaseScreen):
             self.tree.item(item, tags=(stripe_tag,) + tuple(existing))
 
         self._schedule_fix_buttons()
+
+    # ------------------------------------------------------------------
+    # Cross-screen navigation
+    # ------------------------------------------------------------------
+
+    def _add_nav_ctx_items(self, iid, add_fn):
+        if not self.navigate_to:
+            return
+        tid_upper = self.tree.set(iid, "tid")
+        for item in self.all_data:
+            if item["tid"] == tid_upper:
+                fname = item["filename"]
+                short = fname[:40] + "…" if len(fname) > 40 else fname
+                add_fn(f"🎮 Jump to Base Game for {short}",
+                       lambda t=item["base_tid"]: self.navigate_to("base", t))
+                return
+
+    def _on_row_double_click(self, event):
+        """Double-click any update row → jump to Base Games for that game."""
+        if not self.navigate_to:
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        tid_upper = self.tree.set(iid, "tid")
+        for item in self.all_data:
+            if item["tid"] == tid_upper:
+                self.navigate_to("base", item["base_tid"])
+                return
+

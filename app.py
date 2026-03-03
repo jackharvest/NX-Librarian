@@ -269,9 +269,17 @@ class NXLibrarianApp:
     def _on_mode_selected(self, mode: str):
         if mode not in self._mode_screens:
             self._mode_screens[mode] = self._build_screen(mode)
-        self._swap(self._mode_screens[mode])
+        screen = self._mode_screens[mode]
+        screen.search_query.set("")  # Clear filter when entering from mode select
+        self._swap(screen)
         self._current_mode = mode
         self.root.configure(bg="#ffffff")
+
+    def _navigate_to(self, mode: str, tid: str):
+        """Switch to mode screen and filter by the game's TID prefix."""
+        self._on_mode_selected(mode)
+        # First 13 chars of any Switch TID identify the game — shared by base, update, and all DLC
+        self._mode_screens[mode].search_query.set(tid[:13])
 
     def _build_screen(self, mode: str):
         common = dict(
@@ -281,6 +289,7 @@ class NXLibrarianApp:
             norm_v=self.norm_v,
             norm_t=self.norm_t,
             norm_c=self.norm_c,
+            navigate_to=self._navigate_to,
         )
         if mode == "updates":
             return UpdatesScreen(**common)
