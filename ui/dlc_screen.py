@@ -287,3 +287,5 @@ class DLCScreen(BaseScreen):
             stripe_tag = "even" if idx % 2 == 0 else "odd"
             existing = self.tree.item(iid, "tags")
             self.tree.item(iid, tags=(stripe_tag,) + tuple(existing))
+
+        self._schedule_fix_buttons()

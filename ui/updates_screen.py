@@ -143,7 +143,10 @@ class UpdatesScreen(BaseScreen):
         improper_name = 0
 
         id_pat       = re.compile(r'(?<![0-9A-Fa-f])([01][0-9A-Fa-f]{15})(?![0-9A-Fa-f])')
-        ver_pat      = re.compile(r'\[v?(\d+)\]')
+        # [v12345] preferred (v required to avoid matching all-digit TIDs like
+        # [0100965017338800]); fallback: bare v12345 not followed by .\d
+        # (which would indicate a display version like v1.0.7).
+        ver_pat      = re.compile(r'\[v(\d+)\]|[vV](\d+)(?!\.\d)')
         _bracket_tid = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
         _bracket_ver = re.compile(r'\[v\d+\]', re.IGNORECASE)
 
@@ -171,7 +174,7 @@ class UpdatesScreen(BaseScreen):
 
                 tid = tid_m.group(1).lower()
                 ver_m = ver_pat.search(fname)
-                cur_i = int(ver_m.group(1)) if ver_m else 0
+                cur_i = int(ver_m.group(1) or ver_m.group(2)) if ver_m else 0
 
                 # Find version list
                 v_list = None
@@ -323,3 +326,5 @@ class UpdatesScreen(BaseScreen):
             stripe_tag = "even" if idx % 2 == 0 else "odd"
             existing = self.tree.item(item, "tags")
             self.tree.item(item, tags=(stripe_tag,) + tuple(existing))
+
+        self._schedule_fix_buttons()

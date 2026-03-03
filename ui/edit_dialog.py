@@ -15,7 +15,6 @@ from tkinter import ttk, messagebox
 # ── helpers ────────────────────────────────────────────────────────────────
 
 _SAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_VER_RE  = re.compile(r'[vV](\d+)')
 
 
 def _sanitize(name: str) -> str:
@@ -39,23 +38,40 @@ def _propose_name(item: dict, norm_t: dict) -> str | None:
     tid_lower = tid_raw.lower()
     ext       = os.path.splitext(fname)[1].lower()
 
-    # Version integer from filename (raw value, e.g. 131072 not 2.0)
-    ver_m   = _VER_RE.search(fname)
-    ver_int = int(ver_m.group(1)) if ver_m else 0
+    # Version integer — use values already parsed by the scan method so we
+    # never accidentally match a display string like "v1.4.643" from the stem.
+    # • Updates carry "cur_int" (e.g. 262144)
+    # • Base games are always v0 by Switch convention
+    # • DLC: look for a bracketed [vNUMBER] token (TIDs have no v-prefix)
+    if "cur_int" in item:
+        ver_int = item["cur_int"]
+    elif "version" in item:
+        ver_int = 0                     # base games are always v0
+    else:
+        ver_m   = re.search(r'\[v(\d+)\]', fname, re.IGNORECASE)
+        ver_int = int(ver_m.group(1)) if ver_m else 0
 
-    # DB name lookup (norm_t keys are lowercase)
-    db_entry = norm_t.get(tid_lower, {})
+    # DB name lookup — try the file's own TID first, then the base-game TID.
+    # Update/DLC TIDs often have no "name" entry; the base game TID does.
+    base_tid = tid_lower[:13] + "000"
+    db_entry = norm_t.get(tid_lower) or norm_t.get(base_tid) or {}
     db_name  = (db_entry.get("name") or "").strip()
 
     if db_name:
         safe_name = _sanitize(db_name)
     else:
-        # Fallback: strip TID + version + "Switch" markers from the stem
+        # Fallback: scrub the stem of TID, version tokens, and noise tags.
         stem = os.path.splitext(fname)[0]
-        stem = re.sub(r'(?i)[_\s]*' + re.escape(tid_raw) + r'[_\s]*', ' ', stem)
-        stem = re.sub(r'(?i)[_\s]*[vV]\d+[_\s]*', ' ', stem)
-        stem = re.sub(r'(?i)[_\s]*Switch[_\s]*', ' ', stem)
-        stem = re.sub(r'_+', ' ', stem).strip()
+        # Remove TID with or without surrounding brackets
+        stem = re.sub(r'(?i)\[?' + re.escape(tid_upper) + r'\]?', ' ', stem)
+        # Remove bracketed version tokens: [v12345] or [12345]
+        stem = re.sub(r'\[v?\d+\]', ' ', stem, flags=re.IGNORECASE)
+        # Remove display version strings: v1.4.643, V2.0, etc. (not preceded by a letter)
+        stem = re.sub(r'(?<![A-Za-z])[vV][\d.]+', ' ', stem)
+        # Remove noise tags and leftover bracket pairs
+        stem = re.sub(r'(?i)\[?(UPD|DLC|Switch)\]?', ' ', stem)
+        stem = re.sub(r'[\[\]]', ' ', stem)
+        stem = re.sub(r'\s+', ' ', stem).strip()
         safe_name = _sanitize(stem)
 
     if not safe_name:
@@ -100,11 +116,13 @@ class EditDialog(tk.Toplevel):
         ``item['filepath']``).
     """
 
-    def __init__(self, parent_screen, items: list, norm_t: dict, folder: str):
+    def __init__(self, parent_screen, items: list, norm_t: dict, folder: str,
+                 search: str = ""):
         super().__init__(parent_screen)
         self._parent = parent_screen
         self._norm_t = norm_t
         self._folder = folder
+        self._search_var = tk.StringVar(value=search)
 
         # Build the rename plan before drawing anything
         self._plan = self._build_plan(items)
@@ -118,6 +136,11 @@ class EditDialog(tk.Toplevel):
 
         self._build_ui()
         self._update_summary()
+
+        # Wire up live search after UI exists; apply initial filter if pre-filled
+        self._search_var.trace_add("write", self._apply_filter)
+        if search:
+            self._apply_filter()
 
         # Centre on parent
         self.update_idletasks()
@@ -163,6 +186,31 @@ class EditDialog(tk.Toplevel):
                                      font=("Segoe UI", 9),
                                      fg=_T["text_dim"], bg=_T["bg_card"], padx=20)
         self._summary_lbl.pack(side="right")
+
+        # ── Search bar ─────────────────────────────────────────────────────
+        search_bar = tk.Frame(self, bg=_T["bg_card"],
+                              highlightthickness=1, highlightbackground=_T["border"])
+        search_bar.pack(fill="x")
+
+        sb_inner = tk.Frame(search_bar, bg=_T["bg_card"])
+        sb_inner.pack(fill="x", padx=14, pady=8)
+
+        tk.Label(sb_inner, text="🔍", font=("Segoe UI", 10),
+                 fg=_T["text_dim"], bg=_T["bg_card"]).pack(side="left", padx=(0, 6))
+
+        self._search_entry = tk.Entry(sb_inner, textvariable=self._search_var,
+                                      font=("Segoe UI", 9),
+                                      bg=_T["bg_hover"], fg=_T["text"],
+                                      relief="solid", bd=1,
+                                      insertbackground=_T["accent"])
+        self._search_entry.pack(side="left", fill="x", expand=True)
+        self._search_entry.focus_set()
+
+        tk.Button(sb_inner, text="✕ Clear",
+                  command=lambda: self._search_var.set(""),
+                  bg=_T["border_lt"], fg=_T["text_dim"],
+                  relief="flat", font=("Segoe UI", 8),
+                  cursor="hand2", padx=8, pady=3).pack(side="left", padx=(8, 0))
 
         # ── Column headers ─────────────────────────────────────────────────
         hdr = tk.Frame(self, bg=_T["border_lt"],
@@ -258,6 +306,7 @@ class EditDialog(tk.Toplevel):
         row = tk.Frame(self._rows_frame, bg=bg,
                        highlightthickness=1, highlightbackground=_T["border"])
         row.pack(fill="x", pady=(0, 1))
+        entry["row_frame"] = row
 
         inner = tk.Frame(row, bg=bg)
         inner.pack(fill="x", padx=14, pady=7)
@@ -265,7 +314,7 @@ class EditDialog(tk.Toplevel):
         # Checkbox
         chk = tk.Checkbutton(inner, variable=entry["var"],
                              bg=bg, activebackground=bg,
-                             selectcolor=_T["bg_hover"],
+                             selectcolor="#ffffff",
                              command=self._update_summary)
         chk.pack(side="left")
         if not entry["can_auto"]:
@@ -310,24 +359,52 @@ class EditDialog(tk.Toplevel):
     def _on_wheel(self, event):
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
+    # ── search / filter ────────────────────────────────────────────────────
+
+    def _visible_entries(self) -> list:
+        """Return plan entries that match the current search text."""
+        q = self._search_var.get().lower()
+        if not q:
+            return list(self._plan)
+        return [e for e in self._plan
+                if q in e["item"]["filename"].lower()
+                or q in e["proposed"].lower()]
+
+    def _apply_filter(self, *_):
+        visible_set = set(id(e) for e in self._visible_entries())
+        for entry in self._plan:
+            frame = entry.get("row_frame")
+            if frame is None:
+                continue
+            if id(entry) in visible_set:
+                frame.pack(fill="x", pady=(0, 1))
+            else:
+                frame.pack_forget()
+        self._rows_frame.event_generate("<Configure>")
+        self._update_summary()
+
     # ── controls ──────────────────────────────────────────────────────────
 
     def _select_all(self):
-        for entry in self._plan:
+        for entry in self._visible_entries():
             if entry["can_auto"]:
                 entry["var"].set(True)
         self._update_summary()
 
     def _deselect_all(self):
-        for entry in self._plan:
+        for entry in self._visible_entries():
             entry["var"].set(False)
         self._update_summary()
 
     def _update_summary(self):
-        checked = sum(1 for e in self._plan if e["var"].get())
-        auto    = sum(1 for e in self._plan if e["can_auto"])
-        cant    = len(self._plan) - auto
+        visible = self._visible_entries()
+        checked = sum(1 for e in visible if e["var"].get())
+        auto    = sum(1 for e in visible if e["can_auto"])
+        cant    = len(visible) - auto
+        total   = len(self._plan)
         parts   = [f"{checked} of {auto} selected for rename"]
+        if len(visible) < total:
+            parts.append(f"{len(visible)} of {total} shown")
         if cant:
             parts.append(f"{cant} cannot be auto-renamed")
         self._summary_lbl.config(text="  •  ".join(parts))

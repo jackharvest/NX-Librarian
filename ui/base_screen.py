@@ -74,6 +74,8 @@ class BaseScreen(tk.Frame):
         self.show_bad_names   = False
         self._missing_tid_count = 0
         self._bad_names_count   = 0
+        self._fix_buttons       = []
+        self._fix_btn_after_id  = None
 
         self._load_folder_config()
         self._setup_styles()
@@ -202,10 +204,7 @@ class BaseScreen(tk.Frame):
         action_frame.pack(side="right")
         
         scan_btn = self._create_button(action_frame, "⟳ SCAN", self.scan, primary=True)
-        scan_btn.pack(side="left", padx=(0, 8))
-        
-        edit_btn = self._create_button(action_frame, "✎ EDIT", self.open_edit_mode)
-        edit_btn.pack(side="left")
+        scan_btn.pack(side="left")
         
         # ════════════════════════════════════════════════════════════════
         # Control panel below navigation
@@ -329,19 +328,25 @@ class BaseScreen(tk.Frame):
                                 show="headings", selectmode="browse",
                                 height=20, style="Striped.Treeview")
         
-        vsb = ttk.Scrollbar(self.table_container, orient="vertical", command=self.tree.yview,
-                           style="Vertical.TScrollbar")
-        self.tree.configure(yscrollcommand=vsb.set)
-        
+        self._vsb = ttk.Scrollbar(self.table_container, orient="vertical", command=self.tree.yview,
+                                  style="Vertical.TScrollbar")
+        # Wrap yscrollcommand so scrolling repositions Fix Name buttons
+        self.tree.configure(
+            yscrollcommand=lambda *a: (self._vsb.set(*a), self._schedule_fix_buttons()))
+
         # Configure columns
         for col_id, heading, width, stretch, anchor in self.COLUMNS:
             self.tree.heading(col_id, text=heading,
                             command=lambda c=col_id: self._sort_column(c, False))
             self.tree.column(col_id, width=width, minwidth=max(60, width // 2),
                             stretch=stretch, anchor=anchor)
-        
+
         self.tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
+        self._vsb.pack(side="right", fill="y")
+
+        # Reposition Fix Name buttons on keyboard scroll and window resize
+        self.tree.bind("<KeyRelease>",  lambda e: self._schedule_fix_buttons())
+        self.tree.bind("<Configure>",   lambda e: self._schedule_fix_buttons())
 
         # configure striping tags
         self.tree.tag_configure("even", background="#1a2540")
@@ -525,6 +530,78 @@ class BaseScreen(tk.Frame):
             fg="#ffffff"            if self.show_bad_names else (
                 THEME["status_warn"] if self._bad_names_count > 0 else THEME["text_muted"]))
         self.refresh_table()
+        self._schedule_fix_buttons(60)
+
+    def _clear_fix_buttons(self):
+        """Destroy all overlay Fix Name buttons."""
+        for btn in self._fix_buttons:
+            try:
+                btn.destroy()
+            except Exception:
+                pass
+        self._fix_buttons = []
+
+    def _schedule_fix_buttons(self, delay: int = 30):
+        """Debounce Fix Name button repositioning (e.g. after scroll/resize)."""
+        if self._fix_btn_after_id:
+            try:
+                self.after_cancel(self._fix_btn_after_id)
+            except Exception:
+                pass
+        self._fix_btn_after_id = self.after(delay, self._place_fix_buttons)
+
+    def _place_fix_buttons(self):
+        """Overlay a real Fix Name button on every visible bad-name row."""
+        self._fix_btn_after_id = None
+        self._clear_fix_buttons()
+
+        if not self.show_bad_names:
+            return
+
+        fname_idx = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
+        fname_col = "filename"  # treeview column id
+        btn_w, btn_h = 86, 26
+
+        for iid in self.tree.get_children():
+            values = self.tree.item(iid, "values")
+            if not values:
+                continue
+            filename = values[fname_idx]
+
+            item = next(
+                (d for d in self.all_data
+                 if d.get("filename") == filename and d.get("_quality") == "bad_name"),
+                None)
+            if not item:
+                continue
+
+            # Cell bbox for the filename column — returns "" if row is off-screen
+            cell = self.tree.bbox(iid, fname_col)
+            if not cell:
+                continue
+
+            cx, cy, cw, ch = cell
+            btn_x = cx + cw - btn_w - 6
+            btn_y = cy + (ch - btn_h) // 2
+
+            btn = tk.Button(
+                self.tree,
+                text="✎ Fix Name",
+                command=lambda i=item: self._fix_item(i),
+                bg=THEME["status_warn"], fg="#ffffff",
+                relief="flat", font=("Segoe UI", 8, "bold"),
+                cursor="hand2", padx=6, pady=0,
+                bd=0, highlightthickness=0)
+            btn.place(x=btn_x, y=btn_y, width=btn_w, height=btn_h)
+            self._fix_buttons.append(btn)
+
+    def _fix_item(self, item: dict):
+        """Open the rename dialog pre-filtered to this item; user can clear search to see all."""
+        from ui.edit_dialog import EditDialog
+        bad_items = [d for d in self.all_data
+                     if d.get("_quality") in ("bad_name", "missing_tid")]
+        EditDialog(self, bad_items, self.norm_t, self.target_folder.get(),
+                   search=item["filename"])
 
     def _quality_visible(self, item) -> bool:
         """Return True if the item passes the active quality filter.

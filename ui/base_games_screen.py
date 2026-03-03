@@ -259,3 +259,5 @@ class BaseGamesScreen(BaseScreen):
         for idx, item in enumerate(self.tree.get_children()):
             stripe_tag = "even" if idx % 2 == 0 else "odd"
             self.tree.item(item, tags=(stripe_tag,))
+
+        self._schedule_fix_buttons()
