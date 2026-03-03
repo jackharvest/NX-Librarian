@@ -3,6 +3,13 @@ constants.py — shared configuration for NX-Librarian
 """
 
 import os
+import sys
+
+# Cross-platform UI font — Segoe UI on Windows, Helvetica Neue on macOS/Linux
+UI_FONT = "Helvetica Neue" if sys.platform == "darwin" else "Segoe UI"
+
+# Font size boost on macOS (Helvetica renders slightly smaller than Segoe UI)
+FONT_BOOST = 2 if sys.platform == "darwin" else 0
 
 APP_NAME    = "NX-Librarian"
 APP_VERSION = "2.0"

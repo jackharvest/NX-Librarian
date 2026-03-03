@@ -10,7 +10,12 @@ Professional features:
 - Professional window setup
 """
 
+import os
 import tkinter as tk
+
+from constants import UI_FONT, FONT_BOOST
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_F = FONT_BOOST
 
 try:
     from PIL import Image, ImageTk
@@ -74,7 +79,7 @@ class NXLibrarianApp:
         self._banner_frame.pack(fill="x", side="top")
 
         try:
-            banner_img_path = Image.open("logo_fullbar_thinner.png").convert("RGBA")
+            banner_img_path = Image.open(os.path.join(_HERE, "logo_fullbar_thinner.png")).convert("RGBA")
             banner_img = ImageTk.PhotoImage(banner_img_path)
             banner_label = tk.Label(self._banner_frame, image=banner_img, bg="#111e2f")
             banner_label.pack(fill="x", expand=True)
@@ -83,13 +88,13 @@ class NXLibrarianApp:
             pass
 
         # Hamburger button — overlaid on top-right corner of the banner
-        self._hamburger_btn = tk.Button(
+        self._hamburger_btn = tk.Label(
             self._banner_frame, text="☰",
-            font=("Segoe UI", 16), fg="#9ca3af", bg="#111e2f",
-            relief="flat", bd=0, padx=12, pady=8,
-            cursor="hand2",
-            activebackground="#1f2847", activeforeground="#ffffff",
-            command=self._show_hamburger_menu)
+            font=(UI_FONT, 16 + _F), fg="#9ca3af", bg="#111e2f",
+            cursor="hand2", padx=12, pady=8)
+        self._hamburger_btn.bind("<Button-1>", lambda e: self._show_hamburger_menu())
+        self._hamburger_btn.bind("<Enter>", lambda e: self._hamburger_btn.config(bg="#1f2847", fg="#ffffff"))
+        self._hamburger_btn.bind("<Leave>", lambda e: self._hamburger_btn.config(bg="#111e2f", fg="#9ca3af"))
         self._hamburger_btn.place(relx=1.0, rely=0.0, anchor="ne")
         self._hamburger_btn.lift()
 
@@ -233,7 +238,7 @@ class NXLibrarianApp:
         if not PILLOW_OK:
             return None
         try:
-            img = Image.open("logo_tophalf.png").convert("RGBA")
+            img = Image.open(os.path.join(_HERE, "logo_tophalf.png")).convert("RGBA")
             # Preserve aspect ratio - fit within the box without stretching
             img.thumbnail((w, h), Image.Resampling.LANCZOS)
             return ImageTk.PhotoImage(img)

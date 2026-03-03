@@ -9,10 +9,14 @@ Animated loading screen with:
 - Professional polish
 """
 
+import os
 import tkinter as tk
 import threading
 import math
 import time
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 try:
     from PIL import Image, ImageTk
@@ -49,11 +53,17 @@ class SplashScreen:
         self._logo_img     = None
         self._start_time   = time.time()
 
+        _is_mac   = sys.platform == "darwin"
+        _bg_key   = "systemTransparent" if _is_mac else "#000000"
+
         self.root = tk.Tk()
         self.root.overrideredirect(True)   # Borderless
         self.root.attributes("-topmost", True)
-        self.root.attributes("-transparentcolor", "#000000")
-        self.root.configure(bg="#000000")
+        if _is_mac:
+            self.root.attributes("-transparent", True)
+        else:
+            self.root.attributes("-transparentcolor", "#000000")
+        self.root.configure(bg=_bg_key)
 
         # Centre the window on screen
         sw = self.root.winfo_screenwidth()
@@ -63,12 +73,12 @@ class SplashScreen:
         self.root.geometry(f"{self.W}x{self.H}+{x}+{y}")
 
         self.canvas = tk.Canvas(self.root, width=self.W, height=self.H,
-                                bg="#000000", highlightthickness=0)
+                                bg=_bg_key, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
         # Draw initial state
-        self._circle_id  = self.canvas.create_oval(0, 0, 0, 0, 
-                                                   fill=self.ACCENT_COLOR, 
+        self._circle_id  = self.canvas.create_oval(0, 0, 0, 0,
+                                                   fill="#ffffff",
                                                    outline="")
         self._logo_id    = None
         self._pct_shadow = None
@@ -89,7 +99,7 @@ class SplashScreen:
         if not PILLOW_OK:
             return
         try:
-            img = Image.open("logo.png").convert("RGBA")
+            img = Image.open(os.path.join(_HERE, "logo.png")).convert("RGBA")
             # Preserve aspect ratio
             img.thumbnail((self.LOGO_W, self.LOGO_H), Image.Resampling.LANCZOS)
             

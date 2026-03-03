@@ -14,12 +14,15 @@ This is v3: utterly unrecognizable from v2.
 """
 
 import os
+import sys
 import tkinter as tk
 from tkinter import filedialog, ttk
 import configparser
 import threading
 
-from constants import COLOR_BG, CONFIG_FILE
+from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST
+
+_F = FONT_BOOST  # shorthand
 
 try:
     from PIL import Image, ImageTk
@@ -128,8 +131,8 @@ class BaseScreen(tk.Frame):
         
         # Premium treeview with modern styling
         style.configure("Treeview",
-                       font=("Segoe UI", 10),
-                       rowheight=44,
+                       font=(UI_FONT, 10 + _F),
+                       rowheight=44 + _F * 2,
                        borderwidth=0,
                        background=THEME["bg_secondary"],
                        foreground=THEME["text_primary"],
@@ -137,7 +140,7 @@ class BaseScreen(tk.Frame):
                        relief="flat")
         
         style.configure("Treeview.Heading",
-                       font=("Segoe UI", 9, "bold"),
+                       font=(UI_FONT, 9 + _F, "bold"),
                        background=THEME["border_light"],
                        foreground=THEME["text_secondary"],
                        relief="flat",
@@ -179,24 +182,25 @@ class BaseScreen(tk.Frame):
         nav_inner.pack(fill="x")
         
         # ── Back button ────────────────────────────────────────────────
-        back_btn = tk.Button(nav_inner, text="< BACK", command=self._on_back,
+        back_btn = tk.Label(nav_inner, text="< BACK",
                             bg=THEME["border_light"], fg=THEME["text_secondary"],
-                            relief="flat", font=("Segoe UI", 9, "bold"),
-                            cursor="hand2", padx=12, pady=6,
-                            activebackground=THEME["bg_tertiary"],
-                            activeforeground=THEME["accent_primary"])
+                            font=(UI_FONT, 9 + _F, "bold"),
+                            cursor="hand2", padx=12, pady=6)
+        back_btn.bind("<Button-1>", lambda e: self._on_back())
+        back_btn.bind("<Enter>", lambda e: back_btn.config(bg=THEME["bg_tertiary"], fg=THEME["accent_primary"]))
+        back_btn.bind("<Leave>", lambda e: back_btn.config(bg=THEME["border_light"], fg=THEME["text_secondary"]))
         back_btn.pack(side="left")
         
         # ── Mode title ─────────────────────────────────────────────────
         title_frame = tk.Frame(nav_inner, bg=THEME["bg_secondary"])
         title_frame.pack(side="left", padx=(20, 0), fill="x", expand=True)
         
-        tk.Label(title_frame, text=self.MODE_LABEL, 
-                font=("Segoe UI", 14, "bold"),
+        tk.Label(title_frame, text=self.MODE_LABEL,
+                font=(UI_FONT, 14 + _F, "bold"),
                 fg=THEME["text_primary"], bg=THEME["bg_secondary"]).pack(anchor="w")
-        
+
         tk.Label(title_frame, text="Live library management & organization",
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9 + _F),
                 fg=THEME["text_secondary"], bg=THEME["bg_secondary"]).pack(anchor="w", pady=(2, 0))
         
         # ── Action buttons on right ────────────────────────────────────
@@ -221,16 +225,17 @@ class BaseScreen(tk.Frame):
         folder_inner = tk.Frame(folder_section, bg=THEME["bg_raised"])
         folder_inner.pack(fill="x", padx=16, pady=12)
         
-        tk.Label(folder_inner, text="📁 Library Path", font=("Segoe UI", 9, "bold"),
+        tk.Label(folder_inner, text="📁 Library Path", font=(UI_FONT, 9 + _F, "bold"),
                 fg=THEME["text_secondary"], bg=THEME["bg_raised"]).pack(anchor="w", pady=(0, 6))
         
         folder_controls = tk.Frame(folder_inner, bg=THEME["bg_raised"])
         folder_controls.pack(fill="x")
         
         path_entry = tk.Entry(folder_controls, textvariable=self.target_folder,
-                             font=("Segoe UI", 10),
+                             font=(UI_FONT, 10 + _F),
                              bg=THEME["bg_tertiary"], fg=THEME["text_primary"],
                              relief="solid", bd=1, insertbackground=THEME["accent_primary"],
+                             highlightthickness=0,
                              width=60)
         path_entry.pack(side="left", fill="x", expand=True)
         
@@ -238,16 +243,18 @@ class BaseScreen(tk.Frame):
         browse_btn.pack(side="left", padx=(8, 0))
 
     def _create_button(self, parent, text, command, primary=False):
-        """Create a modern button with enhanced styling."""
-        btn = tk.Button(parent, text=text, command=command,
-                       bg=THEME["accent_primary"] if primary else THEME["border_light"],
-                       fg=THEME["bg_primary"] if primary else THEME["text_secondary"],
-                       relief="flat", font=("Segoe UI", 9, "bold"),
-                       cursor="hand2", padx=14, pady=6,
-                       activebackground=THEME["accent_glow"],
-                       activeforeground=THEME["bg_primary"],
-                       bd=0,
-                       highlightthickness=0)
+        """Create a styled Label-based button (works correctly on macOS and Windows)."""
+        bg_n = THEME["accent_primary"] if primary else THEME["border_light"]
+        fg_n = THEME["bg_primary"]     if primary else THEME["text_secondary"]
+        bg_h = THEME["accent_glow"]    if primary else THEME["bg_tertiary"]
+        fg_h = THEME["bg_primary"]
+        btn = tk.Label(parent, text=text,
+                       bg=bg_n, fg=fg_n,
+                       font=(UI_FONT, 9 + _F, "bold"),
+                       cursor="hand2", padx=14, pady=6)
+        btn.bind("<Button-1>", lambda e: command())
+        btn.bind("<Enter>",    lambda e: btn.config(bg=bg_h, fg=fg_h))
+        btn.bind("<Leave>",    lambda e: btn.config(bg=bg_n, fg=fg_n))
         return btn
 
     def _build_filter_buttons(self, parent):
@@ -284,38 +291,39 @@ class BaseScreen(tk.Frame):
         right_frame.pack(side="right")
 
         self.stats_lbl = tk.Label(right_frame, text="Ready",
-                                  font=("Segoe UI", 9, "bold"),
+                                  font=(UI_FONT, 9 + _F, "bold"),
                                   fg=THEME["text_secondary"], bg=THEME["bg_secondary"])
         self.stats_lbl.pack(side="left", padx=(0, 16))
 
-        self.btn_missing_tid = tk.Button(
+        self.btn_missing_tid = tk.Label(
             right_frame, text="Missing TID: 0",
-            command=self._toggle_missing_tid,
-            bg=THEME["border_light"], fg=THEME["text_muted"],
-            relief="flat", font=("Segoe UI", 8, "bold"),
-            cursor="hand2", padx=10, pady=3, bd=0)
+            font=(UI_FONT, 8 + _F, "bold"),
+            fg=THEME["text_muted"], bg=THEME["border_light"],
+            cursor="hand2", padx=10, pady=3)
+        self.btn_missing_tid.bind("<Button-1>", lambda e: self._toggle_missing_tid())
         self.btn_missing_tid.pack(side="left", padx=(0, 6))
 
-        self.btn_bad_names = tk.Button(
+        self.btn_bad_names = tk.Label(
             right_frame, text="Bad Names: 0",
-            command=self._toggle_bad_names,
-            bg=THEME["border_light"], fg=THEME["text_muted"],
-            relief="flat", font=("Segoe UI", 8, "bold"),
-            cursor="hand2", padx=10, pady=3, bd=0)
+            font=(UI_FONT, 8 + _F, "bold"),
+            fg=THEME["text_muted"], bg=THEME["border_light"],
+            cursor="hand2", padx=10, pady=3)
+        self.btn_bad_names.bind("<Button-1>", lambda e: self._toggle_bad_names())
         self.btn_bad_names.pack(side="left")
 
         # ── LEFT: live search + mode-specific filter buttons ───────────
         left_frame = tk.Frame(header_inner, bg=THEME["bg_secondary"])
         left_frame.pack(side="left", fill="x", expand=True, padx=(0, 12))
 
-        tk.Label(left_frame, text="🔍", font=("Segoe UI", 11),
+        tk.Label(left_frame, text="🔍", font=(UI_FONT, 11 + _F),
                  fg=THEME["text_muted"], bg=THEME["bg_secondary"]).pack(side="left", padx=(0, 6))
 
         search_entry = tk.Entry(left_frame, textvariable=self.search_query,
-                                font=("Segoe UI", 10),
+                                font=(UI_FONT, 10 + _F),
                                 bg=THEME["bg_tertiary"], fg=THEME["text_primary"],
                                 relief="solid", bd=1,
-                                insertbackground=THEME["accent_primary"])
+                                insertbackground=THEME["accent_primary"],
+                                highlightthickness=0)
         search_entry.pack(side="left", fill="x", expand=True)
 
         filters_frame = tk.Frame(left_frame, bg=THEME["bg_secondary"])
@@ -382,11 +390,11 @@ class BaseScreen(tk.Frame):
                 bg=THEME["bg_secondary"]).pack(pady=(40, 20))
         
         tk.Label(center, text=message,
-                font=("Segoe UI", 14, "bold"),
+                font=(UI_FONT, 14 + _F, "bold"),
                 fg=THEME["text_primary"], bg=THEME["bg_secondary"]).pack(pady=(0, 8))
-        
+
         tk.Label(center, text="Try selecting a folder and clicking SCAN to get started",
-                font=("Segoe UI", 10),
+                font=(UI_FONT, 10 + _F),
                 fg=THEME["text_secondary"], bg=THEME["bg_secondary"]).pack()
         
         self.empty_state_frame = empty_frame
@@ -414,22 +422,22 @@ class BaseScreen(tk.Frame):
         left_section = tk.Frame(bar, bg=THEME["bg_secondary"])
         left_section.pack(side="left", fill="x", expand=True)
         
-        self.status_lbl = tk.Label(left_section, text="✓ Ready", 
+        self.status_lbl = tk.Label(left_section, text="✓ Ready",
                                   bg=THEME["bg_secondary"],
-                                  fg="#10b981", font=("Segoe UI", 9, "bold"))
+                                  fg="#10b981", font=(UI_FONT, 9 + _F, "bold"))
         self.status_lbl.pack(side="left")
-        
+
         # Right section with cache info and refresh
         right_section = tk.Frame(bar, bg=THEME["bg_secondary"])
         right_section.pack(side="right", fill="x")
-        
+
         self.cache_lbl = tk.Label(right_section, text="", bg=THEME["bg_secondary"],
-                                 fg=THEME["text_muted"], font=("Segoe UI", 8))
+                                 fg=THEME["text_muted"], font=(UI_FONT, 8 + _F))
         self.cache_lbl.pack(side="left", padx=(0, 16))
-        
-        self.dl_btn = tk.Label(right_section, text="🔄 SYNC DATABASE", 
+
+        self.dl_btn = tk.Label(right_section, text="🔄 SYNC DATABASE",
                               fg=THEME["accent_primary"],
-                              bg=THEME["bg_secondary"], font=("Segoe UI", 8, "bold"),
+                              bg=THEME["bg_secondary"], font=(UI_FONT, 8 + _F, "bold"),
                               cursor="hand2", relief="flat")
         self.dl_btn.pack(side="left")
         self.dl_btn.bind("<Button-1>", lambda e: self.scan(force_refresh=True))
@@ -584,14 +592,13 @@ class BaseScreen(tk.Frame):
             btn_x = cx + cw - btn_w - 6
             btn_y = cy + (ch - btn_h) // 2
 
-            btn = tk.Button(
+            btn = tk.Label(
                 self.tree,
                 text="✎ Fix Name",
-                command=lambda i=item: self._fix_item(i),
                 bg=THEME["status_warn"], fg="#ffffff",
-                relief="flat", font=("Segoe UI", 8, "bold"),
-                cursor="hand2", padx=6, pady=0,
-                bd=0, highlightthickness=0)
+                font=(UI_FONT, 8 + _F, "bold"),
+                cursor="hand2", padx=6, pady=0)
+            btn.bind("<Button-1>", lambda e, i=item: self._fix_item(i))
             btn.place(x=btn_x, y=btn_y, width=btn_w, height=btn_h)
             self._fix_buttons.append(btn)
 
