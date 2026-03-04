@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import messagebox
 from collections import defaultdict
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, classify_title_id, HAND_CURSOR
+from constants import KNOWN_REGIONS, REGION_FLAGS, classify_title_id, HAND_CURSOR, is_clean_filename
 from db import cache_age_string
 from ui.base_screen import BaseScreen
 from debug_region import get_region_from_votes
@@ -108,11 +108,9 @@ class DLCScreen(BaseScreen):
         self.all_data = []
         missing_tid   = 0
         improper_name = 0
+        unknown_tid   = 0
 
         id_pat       = re.compile(r'(?<![0-9A-Fa-f])([01][0-9A-Fa-f]{15})(?![0-9A-Fa-f])')
-        _bracket_tid = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
-        _bracket_ver = re.compile(r'\[v\d+\]', re.IGNORECASE)
-
         for root_dir, _, files in os.walk(folder):
             for fname in files:
                 if not fname.lower().endswith((".nsp", ".xci")):
@@ -130,10 +128,9 @@ class DLCScreen(BaseScreen):
                     })
                     continue
 
-                is_bad_name = False
-                if not _bracket_tid.search(fname) or not _bracket_ver.search(fname):
+                is_bad_name = not is_clean_filename(fname)
+                if is_bad_name:
                     improper_name += 1
-                    is_bad_name = True
 
                 tid = tid_m.group(1).lower()
                 kind = classify_title_id(tid)
@@ -170,8 +167,11 @@ class DLCScreen(BaseScreen):
                     "dlc_name":         dlc_name,
                     "status":           "",
                     "rgn":              REGION_FLAGS.get(region, region),
-                    "_quality":         "bad_name" if is_bad_name else "ok",
+                    "_quality":         "bad_name" if is_bad_name else (
+                                        "unknown_tid" if not (parent_entry or dlc_entry) else "ok"),
                 })
+                if not is_bad_name and not (parent_entry or dlc_entry):
+                    unknown_tid += 1
 
         self.all_data.sort(key=lambda x: x["filename"].lower())
 
@@ -200,9 +200,11 @@ class DLCScreen(BaseScreen):
             dlc_votes = item["dlc_region_votes"]
             # Wrong region only when the DLC has its own DB entry AND that entry has
             # zero votes for the parent's region — meaning it was never published there.
-            # Comparing dominant regions produces false positives for global releases
-            # that appear in both US.en.json and GB.en.json.
-            if p_region and dlc_votes and p_region not in dlc_votes:
+            # Skip entirely if parent is GLB: "GLB" is our synthetic label and is never
+            # a real key in dlc_votes, so the check would always fire for global games.
+            # Also skip if the DLC itself appears in 3+ regional DBs (it's also global).
+            dlc_is_glb = len(dlc_votes) >= 3
+            if p_region and p_region != "GLB" and dlc_votes and not dlc_is_glb and p_region not in dlc_votes:
                 item["status"] = "✗ WRONG REGION"
             else:
                 p_tid     = item["parent_tid"]
@@ -214,7 +216,7 @@ class DLCScreen(BaseScreen):
                     item["status"] = f"⚠ PARTIAL {local}/{db_total}"
                 else:
                     item["status"] = "✓ OK"
-        self._update_file_counters(missing_tid, improper_name)
+        self._update_file_counters(missing_tid, improper_name, unknown_tid)
         self._update_status(f"✓ Scanned {len(self.all_data)} DLC items", "success")
         self.cache_lbl.config(text=cache_age_string())
         self.refresh_table()

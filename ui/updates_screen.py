@@ -20,7 +20,7 @@ from tkinter import messagebox
 from collections import defaultdict
 import time
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, is_clean_filename
 from db import cache_age_string
 from ui.base_screen import BaseScreen
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
@@ -125,15 +125,15 @@ class UpdatesScreen(BaseScreen):
         self.all_data = []
         missing_tid   = 0
         improper_name = 0
+        unknown_tid   = 0
 
         id_pat       = re.compile(r'(?<![0-9A-Fa-f])([01][0-9A-Fa-f]{15})(?![0-9A-Fa-f])')
-        # [v12345] preferred (v required to avoid matching all-digit TIDs like
-        # [0100965017338800]); fallback: bare v12345 not followed by .\d
-        # (which would indicate a display version like v1.0.7).
-        ver_pat      = re.compile(r'\[v(\d+)\]|[vV](\d+)(?!\.\d)')
-        _bracket_tid = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
-        _bracket_ver = re.compile(r'\[v\d+\]', re.IGNORECASE)
-
+        # Priority order:
+        #   1. [v12345]          — canonical bracket+v format
+        #   2. [262144]          — bare number in brackets (5-15 digits = 65536..999999999999999)
+        #                          min 5 digits excludes years/small tokens; max 15 avoids 16-digit TIDs
+        #   3. bare v12345       — no brackets, v prefix, not followed by .\d (display version)
+        ver_pat      = re.compile(r'\[v(\d+)\]|\[(\d{5,15})\]|[vV](\d+)(?!\.\d)')
         for root_dir, _, files in os.walk(folder):
             for fname in files:
                 if not fname.lower().endswith((".nsp", ".xci")):
@@ -151,14 +151,13 @@ class UpdatesScreen(BaseScreen):
                     })
                     continue
 
-                is_bad_name = False
-                if not _bracket_tid.search(fname) or not _bracket_ver.search(fname):
+                is_bad_name = not is_clean_filename(fname)
+                if is_bad_name:
                     improper_name += 1
-                    is_bad_name = True
 
                 tid = tid_m.group(1).lower()
                 ver_m = ver_pat.search(fname)
-                cur_i = int(ver_m.group(1) or ver_m.group(2)) if ver_m else 0
+                cur_i = int(ver_m.group(1) or ver_m.group(2) or ver_m.group(3)) if ver_m else 0
 
                 # Find version list
                 v_list = None
@@ -185,7 +184,14 @@ class UpdatesScreen(BaseScreen):
                 # produces false positives for global releases.)
                 base_region  = get_region_from_votes(db_entry_base) if db_entry_base else ""
                 update_votes = db_entry_tid.get("_region_votes", {}) if db_entry_tid else {}
-                wrong_region = bool(base_region and update_votes and base_region not in update_votes)
+                # Skip if base is GLB ("GLB" is our synthetic label, never a real votes key)
+                # or if the update itself appears in 3+ regions (also global).
+                update_is_glb = len(update_votes) >= 3
+                wrong_region = bool(
+                    base_region and base_region != "GLB"
+                    and update_votes and not update_is_glb
+                    and base_region not in update_votes
+                )
 
                 # Log the region lookup for debugging
                 log_region_lookup(fname, tid, base_tid, db_entry, "", region)
@@ -205,8 +211,11 @@ class UpdatesScreen(BaseScreen):
                         "tag": "base",
                         "mid": mid or tid,
                         "rgn": REGION_FLAGS.get(region, region),
-                        "_quality": "bad_name" if is_bad_name else "ok",
+                        "_quality": "bad_name" if is_bad_name else (
+                                    "unknown_tid" if not db_entry else "ok"),
                     })
+                    if not is_bad_name and not db_entry:
+                        unknown_tid += 1
                     continue
 
                 # Version comparison
@@ -248,11 +257,14 @@ class UpdatesScreen(BaseScreen):
                     "tag": tag,
                     "mid": mid or tid,
                     "rgn": REGION_FLAGS.get(region, region),
-                    "_quality": "bad_name" if is_bad_name else "ok",
+                    "_quality": "bad_name" if is_bad_name else (
+                                "unknown_tid" if not db_entry else "ok"),
                 })
+                if not is_bad_name and not db_entry:
+                    unknown_tid += 1
 
         self.all_data.sort(key=lambda x: x["filename"].lower())
-        self._update_file_counters(missing_tid, improper_name)
+        self._update_file_counters(missing_tid, improper_name, unknown_tid)
         self._update_status(f"✓ Scanned {len(self.all_data)} items", "success")
         self.cache_lbl.config(text=cache_age_string())
         self.refresh_table()
@@ -314,6 +326,55 @@ class UpdatesScreen(BaseScreen):
             self.tree.item(item, tags=(stripe_tag,) + tuple(existing))
 
         self._schedule_fix_buttons()
+
+    # ------------------------------------------------------------------
+    # Base-game-in-updates overlays  (mirror of base screen's version warn)
+    # ------------------------------------------------------------------
+
+    def _place_fix_buttons(self):
+        """Extend base class to also overlay ⚠ on v0/base rows."""
+        super()._place_fix_buttons()
+        self._place_base_warn_overlays()
+
+    def _place_base_warn_overlays(self):
+        """Overlay yellow ⚠ v0 on the CURRENT column for rows tagged 'base'."""
+        from constants import UI_FONT, FONT_BOOST
+        fname_idx = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
+        all_iids  = self.tree.get_children()
+
+        for idx, iid in enumerate(all_iids):
+            values = self.tree.item(iid, "values")
+            if not values:
+                continue
+            tags = self.tree.item(iid, "tags")
+            if "base" not in tags:
+                continue
+
+            filename = values[fname_idx]
+            item = next((d for d in self.all_data if d.get("filename") == filename), None)
+            if not item:
+                continue
+
+            cell = self.tree.bbox(iid, "cur_ver")
+            if not cell:
+                continue
+
+            cx, cy, cw, ch = cell
+            row_bg = "#1a2540" if idx % 2 == 0 else "#151d33"
+
+            lbl = tk.Label(
+                self.tree,
+                text="⚠  v0",
+                bg=row_bg, fg="#fbbf24",
+                font=(UI_FONT, 9 + FONT_BOOST, "bold"),
+                cursor=HAND_CURSOR)
+            lbl.bind("<Button-1>", lambda e, i=item: self._open_base_warn(i))
+            lbl.place(x=cx, y=cy, width=cw, height=ch)
+            self._fix_buttons.append(lbl)
+
+    def _open_base_warn(self, item: dict):
+        from ui.version_warn_dialog import BaseMisplacedDialog
+        BaseMisplacedDialog(self, item, self.norm_t)
 
     # ------------------------------------------------------------------
     # Cross-screen navigation

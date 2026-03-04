@@ -74,12 +74,15 @@ class BaseScreen(tk.Frame):
         self.target_folder    = tk.StringVar()
         self.search_query     = tk.StringVar()
         self._ctx_col         = None
-        self.show_missing_tid = False
-        self.show_bad_names   = False
-        self._missing_tid_count = 0
-        self._bad_names_count   = 0
+        self.show_missing_tid  = False
+        self.show_bad_names    = False
+        self.show_unknown_tid  = False
+        self._missing_tid_count  = 0
+        self._bad_names_count    = 0
+        self._unknown_tid_count  = 0
         self._fix_buttons       = []
         self._fix_btn_after_id  = None
+        self._rename_history    = []   # stack of batches: [(new_path, old_path), ...]
 
         self._load_folder_config()
         self._setup_styles()
@@ -209,6 +212,10 @@ class BaseScreen(tk.Frame):
         browse_btn = self._create_button(inner, "BROWSE", self._browse)
         browse_btn.pack(side="right", padx=(0, 10))
 
+        self._undo_btn = self._create_button(inner, "↩ UNDO", self._undo_rename)
+        self._undo_btn.pack(side="right", padx=(0, 6))
+        self._refresh_undo_btn()
+
         # Path entry — fills remaining space, accent border on focus
         self.path_entry = tk.Entry(inner, textvariable=self.target_folder,
                               font=(UI_FONT, 10 + _F),
@@ -239,11 +246,135 @@ class BaseScreen(tk.Frame):
         """Override in subclasses to add mode-specific filters."""
         pass
 
+    # ------------------------------------------------------------------
+    # Rename undo
+    # ------------------------------------------------------------------
+
+    def push_rename_batch(self, batch: list):
+        """Called by EditDialog after a successful rename. batch = [(new_path, old_path)]"""
+        if batch:
+            self._rename_history.append(batch)
+            self._refresh_undo_btn()
+
+    def _refresh_undo_btn(self):
+        has = bool(self._rename_history)
+        self._undo_btn.config(
+            bg=THEME["status_warn"] if has else THEME["bg_tertiary"],
+            fg=THEME["bg_primary"]  if has else THEME["text_muted"],
+        )
+
+    def _undo_rename(self):
+        from tkinter import messagebox
+        if not self._rename_history:
+            messagebox.showinfo("Undo", "Nothing to undo.", parent=self)
+            return
+        batch = self._rename_history[-1]
+        count = len(batch)
+        if not messagebox.askyesno(
+                "Undo Rename",
+                f"Undo the last rename batch? ({count} file{'s' if count != 1 else ''})",
+                parent=self):
+            return
+        self._rename_history.pop()
+        ok, errors = 0, []
+        for new_path, old_path in batch:
+            if os.path.exists(new_path):
+                try:
+                    os.rename(new_path, old_path)
+                    ok += 1
+                except OSError as exc:
+                    errors.append(f"{os.path.basename(new_path)}: {exc}")
+            else:
+                errors.append(f"Not found (already moved?): {os.path.basename(new_path)}")
+        self._refresh_undo_btn()
+        if errors:
+            messagebox.showwarning("Undo Complete",
+                f"Reverted {ok} of {count} rename(s).\n\nErrors:\n" + "\n".join(errors[:10]),
+                parent=self)
+        else:
+            messagebox.showinfo("Undo Complete", f"Reverted {ok} rename(s).", parent=self)
+        self.scan()
+
+    # ------------------------------------------------------------------
+    # Browse
+    # ------------------------------------------------------------------
+
     def _browse(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.target_folder.set(path)
-            self._save_folder_config(path)
+        if sys.platform.startswith("linux"):
+            self._browse_linux()
+        else:
+            path = filedialog.askdirectory()
+            if path:
+                self.target_folder.set(path)
+                self._save_folder_config(path)
+
+    def _browse_linux(self):
+        """Linux browse dialog: supports typed paths (including SMB mounts) + local browser."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Select Folder")
+        dialog.configure(bg=THEME["bg_primary"])
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        # Centre over parent
+        px, py = self.winfo_rootx(), self.winfo_rooty()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        w, h = 520, 160
+        dialog.geometry(f"{w}x{h}+{px + (pw - w)//2}+{py + (ph - h)//2}")
+
+        tk.Label(dialog, text="Folder path  (local or SMB mount path)",
+                 font=(UI_FONT, 9), fg=THEME["text_muted"], bg=THEME["bg_primary"]
+                 ).pack(anchor="w", padx=16, pady=(14, 2))
+
+        entry_var = tk.StringVar(value=self.target_folder.get())
+        entry = tk.Entry(dialog, textvariable=entry_var,
+                         font=(UI_FONT, 10 + _F),
+                         bg=THEME["bg_secondary"], fg=THEME["text_primary"],
+                         relief="flat", bd=0,
+                         insertbackground=self.ACCENT_COLOR,
+                         highlightthickness=1,
+                         highlightbackground=THEME["border_subtle"],
+                         highlightcolor=self.ACCENT_COLOR)
+        entry.pack(fill="x", padx=16, ipady=7)
+        entry.focus_set()
+        entry.icursor("end")
+
+        hint = tk.Label(dialog,
+                        text="SMB shares mounted via file manager appear under  /run/user/$(id -u)/gvfs/",
+                        font=(UI_FONT, 8), fg=THEME["text_muted"], bg=THEME["bg_primary"])
+        hint.pack(anchor="w", padx=16, pady=(4, 0))
+
+        btn_row = tk.Frame(dialog, bg=THEME["bg_primary"])
+        btn_row.pack(fill="x", padx=16, pady=12, anchor="e")
+
+        def _local_browse():
+            picked = filedialog.askdirectory(parent=dialog)
+            if picked:
+                entry_var.set(picked)
+
+        def _confirm():
+            path = entry_var.get().strip()
+            if path:
+                self.target_folder.set(path)
+                self._save_folder_config(path)
+            dialog.destroy()
+
+        tk.Button(btn_row, text="Browse local…", command=_local_browse,
+                  bg=THEME["border_light"], fg=THEME["text_secondary"],
+                  relief="flat", padx=10, pady=4, cursor=HAND_CURSOR).pack(side="left")
+        tk.Button(btn_row, text="Cancel", command=dialog.destroy,
+                  bg=THEME["border_light"], fg=THEME["text_secondary"],
+                  relief="flat", padx=10, pady=4, cursor=HAND_CURSOR).pack(side="right", padx=(6, 0))
+        tk.Button(btn_row, text="OK", command=_confirm,
+                  bg=THEME["accent_primary"], fg=THEME["bg_primary"],
+                  relief="flat", padx=14, pady=4, cursor=HAND_CURSOR).pack(side="right")
+
+        dialog.bind("<Return>", lambda e: _confirm())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+
+        dialog.update_idletasks()
+        dialog.grab_set()
+        dialog.wait_window()
 
     # ------------------------------------------------------------------
     # Table
@@ -285,7 +416,15 @@ class BaseScreen(tk.Frame):
             fg=THEME["text_muted"], bg=THEME["border_light"],
             cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_bad_names.bind("<Button-1>", lambda e: self._toggle_bad_names())
-        self.btn_bad_names.pack(side="left")
+        self.btn_bad_names.pack(side="left", padx=(0, 6))
+
+        self.btn_unknown_tid = tk.Label(
+            right_frame, text="Unknown TID: 0",
+            font=(UI_FONT, 8 + _F, "bold"),
+            fg=THEME["text_muted"], bg=THEME["border_light"],
+            cursor=HAND_CURSOR, padx=10, pady=3)
+        self.btn_unknown_tid.bind("<Button-1>", lambda e: self._toggle_unknown_tid())
+        self.btn_unknown_tid.pack(side="left")
 
         # ── LEFT: live search + mode-specific filter buttons ───────────
         left_frame = tk.Frame(header_inner, bg=THEME["bg_secondary"])
@@ -347,8 +486,9 @@ class BaseScreen(tk.Frame):
         self.tree.bind("<Configure>",   lambda e: self._schedule_fix_buttons())
 
         # Striping tags
-        self.tree.tag_configure("even", background="#1a2540")
-        self.tree.tag_configure("odd",  background="#151d33")
+        self.tree.tag_configure("even",        background="#1a2540")
+        self.tree.tag_configure("odd",         background="#151d33")
+        self.tree.tag_configure("unknown_tid", background="#2d1f47", foreground="#c4b5fd")
         
         # Right-click menu
         self._ctx_menu = tk.Menu(self, tearoff=0, bg=THEME["bg_secondary"],
@@ -547,10 +687,11 @@ class BaseScreen(tk.Frame):
     # File quality counters + filter buttons
     # ------------------------------------------------------------------
 
-    def _update_file_counters(self, missing_tid: int, improper_name: int):
+    def _update_file_counters(self, missing_tid: int, improper_name: int, unknown_tid: int = 0):
         """Update quality button labels after a scan."""
         self._missing_tid_count = missing_tid
         self._bad_names_count   = improper_name
+        self._unknown_tid_count = unknown_tid
 
         self.btn_missing_tid.config(
             text=f"Missing TID: {missing_tid}",
@@ -558,6 +699,9 @@ class BaseScreen(tk.Frame):
         self.btn_bad_names.config(
             text=f"Bad Names: {improper_name}",
             fg=THEME["status_warn"]   if improper_name > 0 else THEME["text_muted"])
+        self.btn_unknown_tid.config(
+            text=f"Unknown TID: {unknown_tid}",
+            fg="#a78bfa"              if unknown_tid   > 0 else THEME["text_muted"])
 
     def _toggle_missing_tid(self):
         self.show_missing_tid = not self.show_missing_tid
@@ -566,6 +710,7 @@ class BaseScreen(tk.Frame):
             fg="#ffffff"              if self.show_missing_tid else (
                 THEME["status_danger"] if self._missing_tid_count > 0 else THEME["text_muted"]))
         self.refresh_table()
+        self._schedule_fix_buttons(60)
 
     def _toggle_bad_names(self):
         self.show_bad_names = not self.show_bad_names
@@ -573,6 +718,15 @@ class BaseScreen(tk.Frame):
             bg=THEME["status_warn"] if self.show_bad_names else THEME["border_light"],
             fg="#ffffff"            if self.show_bad_names else (
                 THEME["status_warn"] if self._bad_names_count > 0 else THEME["text_muted"]))
+        self.refresh_table()
+        self._schedule_fix_buttons(60)
+
+    def _toggle_unknown_tid(self):
+        self.show_unknown_tid = not self.show_unknown_tid
+        self.btn_unknown_tid.config(
+            bg="#a78bfa"  if self.show_unknown_tid else THEME["border_light"],
+            fg="#ffffff"  if self.show_unknown_tid else (
+                "#a78bfa" if self._unknown_tid_count > 0 else THEME["text_muted"]))
         self.refresh_table()
         self._schedule_fix_buttons(60)
 
@@ -595,15 +749,15 @@ class BaseScreen(tk.Frame):
         self._fix_btn_after_id = self.after(delay, self._place_fix_buttons)
 
     def _place_fix_buttons(self):
-        """Overlay a real Fix Name button on every visible bad-name row."""
+        """Overlay Fix Name / Fix TID buttons on every visible qualifying row."""
         self._fix_btn_after_id = None
         self._clear_fix_buttons()
 
-        if not self.show_bad_names:
+        if not (self.show_bad_names or self.show_missing_tid or self.show_unknown_tid):
             return
 
         fname_idx = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
-        fname_col = "filename"  # treeview column id
+        fname_col = "filename"
         btn_w, btn_h = 86, 26
 
         for iid in self.tree.get_children():
@@ -612,11 +766,25 @@ class BaseScreen(tk.Frame):
                 continue
             filename = values[fname_idx]
 
-            item = next(
-                (d for d in self.all_data
-                 if d.get("filename") == filename and d.get("_quality") == "bad_name"),
-                None)
+            item = next((d for d in self.all_data if d.get("filename") == filename), None)
             if not item:
+                continue
+
+            quality = item.get("_quality", "ok")
+
+            if self.show_bad_names and quality == "bad_name":
+                btn_text = "✎ Fix Name"
+                btn_bg   = THEME["status_warn"]
+                handler  = self._fix_item
+            elif self.show_missing_tid and quality == "missing_tid":
+                btn_text = "✎ Fix TID"
+                btn_bg   = THEME["status_danger"]
+                handler  = self._fix_tid_item
+            elif self.show_unknown_tid and quality == "unknown_tid":
+                btn_text = "✎ Fix TID"
+                btn_bg   = "#a78bfa"
+                handler  = self._fix_tid_item
+            else:
                 continue
 
             # Cell bbox for the filename column — returns "" if row is off-screen
@@ -630,21 +798,29 @@ class BaseScreen(tk.Frame):
 
             btn = tk.Label(
                 self.tree,
-                text="✎ Fix Name",
-                bg=THEME["status_warn"], fg="#ffffff",
+                text=btn_text,
+                bg=btn_bg, fg="#ffffff",
                 font=(UI_FONT, 8 + _F, "bold"),
                 cursor=HAND_CURSOR, padx=6, pady=0)
-            btn.bind("<Button-1>", lambda e, i=item: self._fix_item(i))
+            btn.bind("<Button-1>", lambda e, i=item, h=handler: h(i))
             btn.place(x=btn_x, y=btn_y, width=btn_w, height=btn_h)
             self._fix_buttons.append(btn)
 
     def _fix_item(self, item: dict):
-        """Open the rename dialog pre-filtered to this item; user can clear search to see all."""
+        """Open the rename dialog pre-filtered to this item."""
         from ui.edit_dialog import EditDialog
         bad_items = [d for d in self.all_data
                      if d.get("_quality") in ("bad_name", "missing_tid")]
         EditDialog(self, bad_items, self.norm_t, self.target_folder.get(),
                    search=item["filename"])
+
+    def _fix_tid_item(self, item: dict):
+        """Open the Fix TID dialog pre-filtered to this item."""
+        from ui.fix_tid_dialog import FixTidDialog
+        tid_items = [d for d in self.all_data
+                     if d.get("_quality") in ("missing_tid", "unknown_tid")]
+        FixTidDialog(self, tid_items, self.norm_t, self.norm_c, self.target_folder.get(),
+                     focus_filename=item["filename"])
 
     def _quality_visible(self, item) -> bool:
         """Return True if the item passes the active quality filter.
@@ -654,10 +830,12 @@ class BaseScreen(tk.Frame):
         Multiple active quality filters are OR'd together.
         """
         quality = item.get("_quality", "ok")
-        if self.show_missing_tid or self.show_bad_names:
+        if self.show_missing_tid or self.show_bad_names or self.show_unknown_tid:
             if self.show_missing_tid and quality == "missing_tid":
                 return True
             if self.show_bad_names and quality == "bad_name":
+                return True
+            if self.show_unknown_tid and quality == "unknown_tid":
                 return True
             return False
         return quality != "missing_tid"   # default: hide missing TID entries
@@ -683,7 +861,7 @@ class BaseScreen(tk.Frame):
             return
 
         items = [item for item in self.all_data
-                 if item.get("_quality") in ("bad_name", "missing_tid")]
+                 if item.get("_quality") in ("bad_name", "missing_tid", "unknown_tid")]
 
         if not items:
             from tkinter import messagebox

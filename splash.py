@@ -54,6 +54,7 @@ class SplashScreen:
         self._start_time   = time.time()
 
         _is_mac   = sys.platform == "darwin"
+        _is_win   = sys.platform == "win32"
         _bg_key   = "systemTransparent" if _is_mac else "#000000"
 
         self.root = tk.Tk()
@@ -61,7 +62,7 @@ class SplashScreen:
         self.root.attributes("-topmost", True)
         if _is_mac:
             self.root.attributes("-transparent", True)
-        else:
+        elif _is_win:
             self.root.attributes("-transparentcolor", "#000000")
         self.root.configure(bg=_bg_key)
 

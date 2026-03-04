@@ -34,11 +34,12 @@ HEADER_LOGO_H = 100
 
 
 class NXLibrarianApp:
-    def __init__(self, root, norm_v=None, norm_t=None, norm_c=None):
-        self.root   = root
-        self.norm_v = norm_v or {}
-        self.norm_t = norm_t or {}
-        self.norm_c = norm_c or {}
+    def __init__(self, root, norm_v=None, norm_t=None, norm_c=None, prescan_data=None):
+        self.root          = root
+        self.norm_v        = norm_v or {}
+        self.norm_t        = norm_t or {}
+        self.norm_c        = norm_c or {}
+        self._prescan_data = prescan_data or {}
 
         self.root.title("NX-Librarian — Nintendo Switch Archive Manager & Renamer")
         self.root.geometry("1350x880")
@@ -60,6 +61,7 @@ class NXLibrarianApp:
         self._current_frame = None
         self._current_mode = None
         self._mode_screens  = {}
+        self._nav_history   = []   # stack of (restore_callable) for back navigation
 
         # Keyboard shortcuts
         self._setup_shortcuts()
@@ -247,6 +249,13 @@ class NXLibrarianApp:
     # Frame routing
     # ------------------------------------------------------------------
 
+    def _go_back(self):
+        """Navigate to the previous screen, or mode select if no history."""
+        if self._nav_history:
+            self._nav_history.pop()()
+        else:
+            self._show_mode_select()
+
     def _swap(self, frame):
         if self._current_frame:
             self._current_frame.pack_forget()
@@ -254,6 +263,7 @@ class NXLibrarianApp:
         self._current_frame = frame
 
     def _show_mode_select(self):
+        self._nav_history.clear()   # mode select is always the root
         if not hasattr(self, "_mode_select_screen"):
             self._mode_select_screen = ModeSelectScreen(
                 self._content_container,
@@ -273,8 +283,34 @@ class NXLibrarianApp:
         self._current_mode = mode
         self.root.configure(bg="#ffffff")
 
+        if hasattr(screen, "_prescan_ready"):
+            # Data was loaded during splash — just render it
+            del screen._prescan_ready
+            self.root.after(50, screen.refresh_table)
+        elif (self._mode_select_screen.pre_scan_enabled
+              and screen.target_folder.get()
+              and not screen.all_data):
+            # Fallback: scan now (pre-scan was off or folder wasn't cached at launch)
+            self.root.after(50, screen.scan)
+
     def _navigate_to(self, mode: str, tid: str):
         """Switch to mode screen and filter by the game's TID prefix."""
+        # Capture current screen state so back can restore it
+        prev_mode   = self._current_mode
+        prev_filter = (self._mode_screens[prev_mode].search_query.get()
+                       if prev_mode and prev_mode in self._mode_screens else "")
+
+        def _restore():
+            if prev_mode is None:
+                self._show_mode_select()
+            else:
+                screen = self._mode_screens[prev_mode]
+                screen.search_query.set(prev_filter)
+                self._swap(screen)
+                self._current_mode = prev_mode
+                self.root.configure(bg="#ffffff")
+
+        self._nav_history.append(_restore)
         self._on_mode_selected(mode)
         # First 13 chars of any Switch TID identify the game — shared by base, update, and all DLC
         self._mode_screens[mode].search_query.set(tid[:13])
@@ -282,7 +318,7 @@ class NXLibrarianApp:
     def _build_screen(self, mode: str):
         common = dict(
             parent=self._content_container,
-            on_back=self._show_mode_select,
+            on_back=self._go_back,
             logo_img=self._logo_header,
             norm_v=self.norm_v,
             norm_t=self.norm_t,
@@ -290,9 +326,22 @@ class NXLibrarianApp:
             navigate_to=self._navigate_to,
         )
         if mode == "updates":
-            return UpdatesScreen(**common)
-        if mode == "base":
-            return BaseGamesScreen(**common)
-        if mode == "dlc":
-            return DLCScreen(**common)
-        raise ValueError(f"Unknown mode: {mode}")
+            screen = UpdatesScreen(**common)
+        elif mode == "base":
+            screen = BaseGamesScreen(**common)
+        elif mode == "dlc":
+            screen = DLCScreen(**common)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        # Inject pre-scanned data if available
+        if mode in self._prescan_data:
+            from db import cache_age_string
+            all_data, missing, improper, unknown = self._prescan_data[mode]
+            screen.all_data = all_data
+            screen._update_file_counters(missing, improper, unknown)
+            screen._update_status(f"✓ Pre-scanned {len(all_data)} items", "success")
+            screen.cache_lbl.config(text=cache_age_string())
+            screen._prescan_ready = True   # flag for _on_mode_selected
+
+        return screen

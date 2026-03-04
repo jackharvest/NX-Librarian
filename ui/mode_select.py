@@ -7,8 +7,10 @@ Three full-screen panels side by side:
   Green → DLC & Add-Ons
 """
 
+import configparser
+import os
 import tkinter as tk
-from constants import UI_FONT, FONT_BOOST, HAND_CURSOR
+from constants import UI_FONT, FONT_BOOST, HAND_CURSOR, APP_VERSION, APP_COPYRIGHT, CONFIG_FILE
 
 _F = FONT_BOOST
 
@@ -139,12 +141,18 @@ class ColorPanel(tk.Frame):
             self._set_hover(False)
 
 
+_BAR_BG     = "#151d33"
+_BAR_BORDER = "#2a3f5f"
+
+
 class ModeSelectScreen(tk.Frame):
     """Three full-height Nintendo Switch color panels, exactly equal width."""
 
     def __init__(self, parent, on_select, logo_img=None, **kwargs):
         super().__init__(parent, bg="#0a0a14", **kwargs)
-        self._on_select = on_select
+        self._on_select    = on_select
+        self._pre_scan     = tk.BooleanVar(value=self._load_pre_scan())
+        self._cache_after  = None
         self._build()
 
     def _build(self):
@@ -164,6 +172,128 @@ class ModeSelectScreen(tk.Frame):
             # 2px black gap between panels (container bg shows through)
             panel.grid(row=0, column=idx, sticky="nsew",
                        padx=(0, 2) if idx < len(MODE_ORDER) - 1 else 0)
+
+        self._build_statusbar()
+
+    # ------------------------------------------------------------------
+    # Pre-Scan preference persistence
+    # ------------------------------------------------------------------
+
+    def _load_pre_scan(self) -> bool:
+        """Load pre_scan setting; default ON when any folder path is cached."""
+        try:
+            cfg = configparser.ConfigParser()
+            if os.path.exists(CONFIG_FILE):
+                cfg.read(CONFIG_FILE)
+                if cfg.has_option("Settings", "pre_scan"):
+                    return cfg.getboolean("Settings", "pre_scan")
+                # First run — default ON if any folder is already configured
+                folders = cfg.options("Folders") if cfg.has_section("Folders") else []
+                return any(cfg.get("Folders", k, fallback="") for k in folders)
+        except Exception:
+            pass
+        return True
+
+    def _save_pre_scan(self, value: bool):
+        try:
+            cfg = configparser.ConfigParser()
+            if os.path.exists(CONFIG_FILE):
+                cfg.read(CONFIG_FILE)
+            if "Settings" not in cfg:
+                cfg["Settings"] = {}
+            cfg["Settings"]["pre_scan"] = str(value).lower()
+            with open(CONFIG_FILE, "w") as f:
+                cfg.write(f)
+        except Exception:
+            pass
+
+    @property
+    def pre_scan_enabled(self) -> bool:
+        return self._pre_scan.get()
+
+    # ------------------------------------------------------------------
+    # Status bar
+    # ------------------------------------------------------------------
+
+    def _build_statusbar(self):
+        bar = tk.Frame(self, bg=_BAR_BG,
+                       highlightthickness=1, highlightbackground=_BAR_BORDER)
+        bar.pack(side="bottom", fill="x")
+
+        bar.columnconfigure(0, weight=1)
+        bar.columnconfigure(1, weight=0)
+        bar.columnconfigure(2, weight=1)
+
+        # Left — hint / sync status
+        self._status_lbl = tk.Label(bar, text="Select a mode to get started",
+                                    bg=_BAR_BG, fg="#6b7280",
+                                    font=(UI_FONT, 9 + _F))
+        self._status_lbl.grid(row=0, column=0, sticky="w", padx=(24, 0), pady=10)
+
+        # Center — copyright · version
+        tk.Label(bar, text=f"{APP_COPYRIGHT}  ·  v{APP_VERSION}",
+                 bg=_BAR_BG, fg="#4b5563",
+                 font=(UI_FONT, 8 + _F)).grid(row=0, column=1, pady=10)
+
+        # Right — Pre-Scan toggle · cache timer · sync button
+        right = tk.Frame(bar, bg=_BAR_BG)
+        right.grid(row=0, column=2, sticky="e", padx=(0, 24), pady=10)
+
+        # Pre-Scan toggle chip
+        self._prescan_lbl = tk.Label(right, bg=_BAR_BG, cursor=HAND_CURSOR,
+                                     font=(UI_FONT, 8 + _F, "bold"), padx=8, pady=2)
+        self._prescan_lbl.pack(side="left", padx=(0, 14))
+        self._prescan_lbl.bind("<Button-1>", lambda e: self._toggle_pre_scan())
+        self._refresh_prescan_chip()
+
+        # Cache age timer
+        self._cache_lbl = tk.Label(right, bg=_BAR_BG, fg="#6b7280",
+                                   font=(UI_FONT, 8 + _F))
+        self._cache_lbl.pack(side="left", padx=(0, 20))
+        self._tick_cache()
+
+        # Sync button
+        sync_btn = tk.Label(right, text="🔄 SYNC DATABASE",
+                            bg=_BAR_BG, fg="#60a5fa",
+                            font=(UI_FONT, 8 + _F, "bold"),
+                            cursor=HAND_CURSOR)
+        sync_btn.pack(side="left")
+        sync_btn.bind("<Button-1>", lambda e: self._sync_db())
+        sync_btn.bind("<Enter>",    lambda e: sync_btn.config(fg="#93c5fd"))
+        sync_btn.bind("<Leave>",    lambda e: sync_btn.config(fg="#60a5fa"))
+
+    def _refresh_prescan_chip(self):
+        on = self._pre_scan.get()
+        self._prescan_lbl.config(
+            text="⚡ Pre-Scan  ON" if on else "⚡ Pre-Scan  OFF",
+            bg="#1e3a5f" if on else "#2a2a3f",
+            fg="#60a5fa" if on else "#6b7280",
+        )
+
+    def _toggle_pre_scan(self):
+        self._pre_scan.set(not self._pre_scan.get())
+        self._save_pre_scan(self._pre_scan.get())
+        self._refresh_prescan_chip()
+
+    def _tick_cache(self):
+        """Update the cache age label every 60 seconds."""
+        try:
+            from db import cache_age_string
+            self._cache_lbl.config(text=cache_age_string())
+        except Exception:
+            self._cache_lbl.config(text="")
+        self._cache_after = self.after(60_000, self._tick_cache)
+
+    def _sync_db(self):
+        self._status_lbl.config(text="🔄 Syncing database…", fg="#60a5fa")
+        self.update_idletasks()
+        try:
+            from db import load_db, cache_age_string
+            load_db(force_refresh=True)
+            self._cache_lbl.config(text=cache_age_string())
+            self._status_lbl.config(text="✓ Database synced", fg="#10b981")
+        except Exception as exc:
+            self._status_lbl.config(text=f"❌ Sync failed: {exc}", fg="#ef4444")
 
 
 if __name__ == "__main__":

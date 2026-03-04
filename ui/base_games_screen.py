@@ -17,20 +17,21 @@ import re
 import tkinter as tk
 from tkinter import messagebox
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, is_clean_filename
 from db import cache_age_string
 from ui.base_screen import BaseScreen
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
 
 
 _COLUMNS = [
-    ("filename",     "FILENAME",      560, True,  "w"),
-    ("tid",          "TITLE ID",      145, False, "center"),
-    ("version",      "VERSION",        80, False, "center"),
-    ("release_date", "RELEASE DATE",   105, False, "center"),
-    ("has_update",   "UPDATE?",        90, False, "center"),
-    ("has_dlc",      "DLC?",           70, False, "center"),
-    ("rgn",          "RGN",            70, False, "center"),
+    ("filename",     "FILENAME",      460, True,  "w"),
+    ("filetype",     "TYPE",           60, False, "center"),
+    ("tid",          "TITLE ID",      155, False, "center"),
+    ("version",      "VERSION",        90, False, "center"),
+    ("release_date", "RELEASE DATE",  120, False, "center"),
+    ("has_update",   "UPDATE?",       115, False, "center"),
+    ("has_dlc",      "DLC?",          115, False, "center"),
+    ("rgn",          "RGN",            65, False, "center"),
 ]
 
 
@@ -111,9 +112,8 @@ class BaseGamesScreen(BaseScreen):
         self.all_data  = []
         missing_tid    = 0
         improper_name  = 0
+        unknown_tid    = 0
 
-        _bracket_tid = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
-        _bracket_ver = re.compile(r'\[v\d+\]', re.IGNORECASE)
 
         for fname in os.listdir(folder):
             fpath = os.path.join(folder, fname)
@@ -128,17 +128,18 @@ class BaseGamesScreen(BaseScreen):
             if not match:
                 missing_tid += 1
                 self.all_data.append({
-                    "filename": fname, "filepath": fpath, "tid": "—", "version": "—",
+                    "filename": fname, "filepath": fpath,
+                    "filetype": os.path.splitext(fname)[1].lstrip(".").upper(),
+                    "tid": "—", "version": "—",
                     "release_date": "—", "has_update": "—", "has_dlc": "—",
                     "rgn": "—", "_quality": "missing_tid",
                 })
                 continue
 
             # Strictly named = TID in brackets AND version in brackets
-            is_bad_name = False
-            if not _bracket_tid.search(fname) or not _bracket_ver.search(fname):
+            is_bad_name = not is_clean_filename(fname)
+            if is_bad_name:
                 improper_name += 1
-                is_bad_name = True
 
             tid = match.group(1).lower()       # lowercase for all DB lookups
             base_tid = tid[:13] + "000"
@@ -191,17 +192,21 @@ class BaseGamesScreen(BaseScreen):
             self.all_data.append({
                 "filename":     fname,
                 "filepath":     fpath,
+                "filetype":     os.path.splitext(fname)[1].lstrip(".").upper(),
                 "tid":          tid.upper(),
                 "version":      version,
                 "release_date": release_date,
                 "has_update":   update_str,
                 "has_dlc":      dlc_str,
                 "rgn":          REGION_FLAGS.get(region, region),
-                "_quality":     "bad_name" if is_bad_name else "ok",
+                "_quality":     "bad_name" if is_bad_name else (
+                                "unknown_tid" if not db_entry else "ok"),
             })
+            if not is_bad_name and not db_entry:
+                unknown_tid += 1
 
         self.all_data.sort(key=lambda x: x["filename"].lower())
-        self._update_file_counters(missing_tid, improper_name)
+        self._update_file_counters(missing_tid, improper_name, unknown_tid)
         self._update_status(f"✓ Scanned {len(self.all_data)} base games", "success")
         self.cache_lbl.config(text=cache_age_string())
         self.refresh_table()
@@ -209,10 +214,10 @@ class BaseGamesScreen(BaseScreen):
     def refresh_table(self):
         """Filter and display table with professional empty states."""
         self.tree.delete(*self.tree.get_children())
-        
+
         # Count visible items
         visible = 0
-        
+
         for row in self.all_data:
             if not self._quality_visible(row):
                 continue
@@ -223,14 +228,23 @@ class BaseGamesScreen(BaseScreen):
                 continue
 
             # Filter by toggle
-            if self.hide_has_update and "Released" in row["has_update"]:
+            if self.hide_has_update and row["has_update"] == "—":
                 continue
-            if self.hide_no_update and row["has_update"] == "—":
+            if self.hide_no_update and "Released" in row["has_update"]:
                 continue
 
-            # Insert row
-            values = tuple(row[col[0]] for col in self.COLUMNS)
-            self.tree.insert("", "end", values=values)
+            # Build values — format version display
+            values = []
+            for col_id, _, _, _, _ in self.COLUMNS:
+                val = row[col_id]
+                if col_id == "version":
+                    ver = val if isinstance(val, int) else 0
+                    val = "v0" if ver == 0 else f"v{ver}"
+                values.append(val)
+            values = tuple(values)
+
+            initial_tags = ("unknown_tid",) if row.get("_quality") == "unknown_tid" else ()
+            self.tree.insert("", "end", values=values, tags=initial_tags)
             visible += 1
         
         # Update stats
@@ -246,12 +260,62 @@ class BaseGamesScreen(BaseScreen):
         else:
             self._hide_empty_state()
         
-        # Apply row striping
+        # Apply row striping — preserve existing quality tags
         for idx, item in enumerate(self.tree.get_children()):
             stripe_tag = "even" if idx % 2 == 0 else "odd"
-            self.tree.item(item, tags=(stripe_tag,))
+            existing = self.tree.item(item, "tags")
+            self.tree.item(item, tags=(stripe_tag,) + tuple(existing))
 
         self._schedule_fix_buttons()
+
+    # ------------------------------------------------------------------
+    # Version-warn overlays
+    # ------------------------------------------------------------------
+
+    def _place_fix_buttons(self):
+        """Extend base class to also place version-warn cell overlays."""
+        super()._place_fix_buttons()
+        self._place_version_warn_overlays()
+
+    def _place_version_warn_overlays(self):
+        """Overlay a yellow ⚠ label on the version cell for every v>0 row."""
+        from constants import UI_FONT, FONT_BOOST
+        fname_idx = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
+        all_iids  = self.tree.get_children()
+
+        for idx, iid in enumerate(all_iids):
+            values = self.tree.item(iid, "values")
+            if not values:
+                continue
+            filename = values[fname_idx]
+            item = next((d for d in self.all_data if d.get("filename") == filename), None)
+            if not item:
+                continue
+
+            ver = item.get("version", 0)
+            if not isinstance(ver, int) or ver <= 0:
+                continue
+
+            cell = self.tree.bbox(iid, "version")
+            if not cell:
+                continue
+
+            cx, cy, cw, ch = cell
+            row_bg = "#1a2540" if idx % 2 == 0 else "#151d33"
+
+            lbl = tk.Label(
+                self.tree,
+                text=f"⚠  v{ver}",
+                bg=row_bg, fg="#fbbf24",
+                font=(UI_FONT, 9 + FONT_BOOST, "bold"),
+                cursor=HAND_CURSOR)
+            lbl.bind("<Button-1>", lambda e, i=item: self._open_version_warn(i))
+            lbl.place(x=cx, y=cy, width=cw, height=ch)
+            self._fix_buttons.append(lbl)
+
+    def _open_version_warn(self, item: dict):
+        from ui.version_warn_dialog import VersionWarnDialog
+        VersionWarnDialog(self, item, self.norm_t)
 
     # ------------------------------------------------------------------
     # Cross-screen navigation

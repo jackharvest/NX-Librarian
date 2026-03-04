@@ -132,7 +132,6 @@ class EditDialog(tk.Toplevel):
         self.resizable(True, True)
         self.geometry("1060x640")
         self.configure(bg=_T["bg"])
-        self.grab_set()
         self.transient(parent_screen)
 
         self._build_ui()
@@ -145,6 +144,7 @@ class EditDialog(tk.Toplevel):
 
         # Centre on parent
         self.update_idletasks()
+        self.grab_set()
         px = parent_screen.winfo_rootx()
         py = parent_screen.winfo_rooty()
         pw = parent_screen.winfo_width()
@@ -413,13 +413,14 @@ class EditDialog(tk.Toplevel):
     # ── rename execution ──────────────────────────────────────────────────
 
     def _do_rename(self):
-        to_rename = [e for e in self._plan if e["var"].get() and e["can_auto"]]
+        to_rename = [e for e in self._visible_entries() if e["var"].get() and e["can_auto"]]
         if not to_rename:
             messagebox.showinfo("Nothing to do",
                                 "No files are checked for renaming.", parent=self)
             return
 
         ok, skip, errors = 0, 0, []
+        completed_batch = []   # [(new_path, original_path)] for undo
 
         for entry in to_rename:
             item     = entry["item"]
@@ -440,6 +441,7 @@ class EditDialog(tk.Toplevel):
 
             try:
                 os.rename(filepath, new_path)
+                completed_batch.append((new_path, filepath))
                 ok += 1
             except OSError as exc:
                 errors.append(f"{item['filename']}: {exc}")
@@ -456,6 +458,7 @@ class EditDialog(tk.Toplevel):
             messagebox.showinfo("Rename Complete", msg, parent=self)
 
         if ok:
+            self._parent.push_rename_batch(completed_batch)
             self.destroy()
             self._parent.scan()
 

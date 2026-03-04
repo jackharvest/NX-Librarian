@@ -3,6 +3,7 @@ constants.py — shared configuration for NX-Librarian
 """
 
 import os
+import re
 import sys
 
 # Cross-platform UI font — Segoe UI on Windows, Helvetica Neue on macOS/Linux
@@ -38,6 +39,34 @@ TITLES_DBS = {
     "ASI": "https://raw.githubusercontent.com/blawar/titledb/master/HK.zh.json",
     "CHN": "https://raw.githubusercontent.com/blawar/titledb/master/CN.zh.json",
 }
+
+# --- Filename quality check ---
+_RE_BRACKET_TID = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
+_RE_BRACKET_VER = re.compile(r'\[v\d+\]', re.IGNORECASE)
+_RE_DISPLAY_VER = re.compile(r'(?<![A-Za-z])[vV]\d[\d.]*')   # e.g. v1.0.0, v2.3
+_RE_ANY_BRACKET = re.compile(r'\[')
+
+
+def is_clean_filename(fname: str) -> bool:
+    """
+    Return True only if the filename matches the expected convention exactly:
+        Game Name [TitleID][vVERSION].ext
+    Flags extra tokens like [APP], [DLC], v1.0.0, etc. as bad names.
+    """
+    stem = os.path.splitext(fname)[0]
+    if not _RE_BRACKET_TID.search(stem):
+        return False
+    if not _RE_BRACKET_VER.search(stem):
+        return False
+    # Strip the two expected tokens and check nothing else is left
+    cleaned = _RE_BRACKET_TID.sub('', stem)
+    cleaned = _RE_BRACKET_VER.sub('', cleaned)
+    if _RE_ANY_BRACKET.search(cleaned):   # extra [whatever] token
+        return False
+    if _RE_DISPLAY_VER.search(cleaned):   # leftover v1.0.0 style string
+        return False
+    return True
+
 
 # --- Title ID classification ---
 # Switch Title IDs are 16 hex chars. The type is encoded in the last 3 hex chars:

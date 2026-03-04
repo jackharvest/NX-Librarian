@@ -21,6 +21,10 @@ def get_region_from_votes(db_entry):
         # Fallback to old _region field if votes not available
         return db_entry.get("_region", "")
     
+    # Titles present in 3+ distinct regional databases are global releases
+    if len(votes) >= 3:
+        return "GLB"
+
     # Find region(s) with max votes
     max_votes = max(votes.values())
     winning_regions = [r for r, v in votes.items() if v == max_votes]
