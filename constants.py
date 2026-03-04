@@ -11,6 +11,10 @@ UI_FONT = "Helvetica Neue" if sys.platform == "darwin" else "Segoe UI"
 # Font size boost on macOS (Helvetica renders slightly smaller than Segoe UI)
 FONT_BOOST = 2 if sys.platform == "darwin" else 0
 
+# Hand cursor — macOS "pointinghand" is the modern native pointer;
+# "hand2" is the old X11 hand with the shirt cuff.
+HAND_CURSOR = "pointinghand" if sys.platform == "darwin" else "hand2"
+
 APP_NAME      = "NX-Librarian"
 APP_VERSION   = "2.2.0"
 APP_COPYRIGHT = "© 2026 jackharvest / NX-Librarian Contributors"

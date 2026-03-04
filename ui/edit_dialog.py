@@ -10,6 +10,7 @@ import os
 import re
 import tkinter as tk
 from tkinter import ttk, messagebox
+from constants import HAND_CURSOR
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -210,7 +211,7 @@ class EditDialog(tk.Toplevel):
                   command=lambda: self._search_var.set(""),
                   bg=_T["border_lt"], fg=_T["text_dim"],
                   relief="flat", font=("Segoe UI", 8),
-                  cursor="hand2", padx=8, pady=3).pack(side="left", padx=(8, 0))
+                  cursor=HAND_CURSOR, padx=8, pady=3).pack(side="left", padx=(8, 0))
 
         # ── Column headers ─────────────────────────────────────────────────
         hdr = tk.Frame(self, bg=_T["border_lt"],
@@ -279,25 +280,25 @@ class EditDialog(tk.Toplevel):
                   command=self._select_all,
                   bg=_T["border_lt"], fg=_T["text_dim"],
                   relief="flat", font=("Segoe UI", 9),
-                  cursor="hand2", padx=10, pady=4).pack(side="left", padx=(0, 6))
+                  cursor=HAND_CURSOR, padx=10, pady=4).pack(side="left", padx=(0, 6))
 
         tk.Button(fi, text="Deselect All",
                   command=self._deselect_all,
                   bg=_T["border_lt"], fg=_T["text_dim"],
                   relief="flat", font=("Segoe UI", 9),
-                  cursor="hand2", padx=10, pady=4).pack(side="left", padx=(0, 16))
+                  cursor=HAND_CURSOR, padx=10, pady=4).pack(side="left", padx=(0, 16))
 
         tk.Button(fi, text="Close",
                   command=self.destroy,
                   bg=_T["border_lt"], fg=_T["text_dim"],
                   relief="flat", font=("Segoe UI", 9, "bold"),
-                  cursor="hand2", padx=14, pady=4).pack(side="right")
+                  cursor=HAND_CURSOR, padx=14, pady=4).pack(side="right")
 
         self._rename_btn = tk.Button(fi, text="⟳  Rename Checked Files",
                                      command=self._do_rename,
                                      bg=_T["accent"], fg=_T["bg"],
                                      relief="flat", font=("Segoe UI", 9, "bold"),
-                                     cursor="hand2", padx=14, pady=4)
+                                     cursor=HAND_CURSOR, padx=14, pady=4)
         self._rename_btn.pack(side="right", padx=(0, 8))
 
     def _add_row(self, entry: dict, idx: int):

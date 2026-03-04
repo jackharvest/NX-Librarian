@@ -13,7 +13,7 @@ Professional features:
 import os
 import tkinter as tk
 
-from constants import UI_FONT, FONT_BOOST
+from constants import UI_FONT, FONT_BOOST, HAND_CURSOR
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _F = FONT_BOOST
 
@@ -51,7 +51,7 @@ class NXLibrarianApp:
 
         # Build persistent top banner
         self._build_banner()
-        
+
         # Create content container for screen swapping
         self._content_container = tk.Frame(self.root, bg="#0a0a14")
         self._content_container.pack(fill="both", expand=True)
@@ -72,7 +72,7 @@ class NXLibrarianApp:
     # ------------------------------------------------------------------
     # Banner
     # ------------------------------------------------------------------
-    
+
     def _build_banner(self):
         """Build persistent top banner with logo and hamburger menu button."""
         self._banner_frame = tk.Frame(self.root, bg="#111e2f")
@@ -91,7 +91,7 @@ class NXLibrarianApp:
         self._hamburger_btn = tk.Label(
             self._banner_frame, text="☰",
             font=(UI_FONT, 16 + _F), fg="#9ca3af", bg="#111e2f",
-            cursor="hand2", padx=12, pady=8)
+            cursor=HAND_CURSOR, padx=12, pady=8)
         self._hamburger_btn.bind("<Button-1>", lambda e: self._show_hamburger_menu())
         self._hamburger_btn.bind("<Enter>", lambda e: self._hamburger_btn.config(bg="#1f2847", fg="#ffffff"))
         self._hamburger_btn.bind("<Leave>", lambda e: self._hamburger_btn.config(bg="#111e2f", fg="#9ca3af"))
@@ -219,9 +219,7 @@ class NXLibrarianApp:
     def _trigger_search_focus(self):
         """Focus search field on current screen if available."""
         if hasattr(self._current_frame, 'search_query'):
-            # Try to find and focus the search entry widget
             try:
-                # Find the entry widget with search_query variable
                 for widget in self.root.winfo_descendants():
                     if isinstance(widget, tk.Entry) and hasattr(widget, 'var'):
                         if widget.var == self._current_frame.search_query:

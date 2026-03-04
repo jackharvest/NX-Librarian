@@ -17,7 +17,7 @@ import re
 import tkinter as tk
 from tkinter import messagebox
 
-from constants import KNOWN_REGIONS, REGION_FLAGS
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR
 from db import cache_age_string
 from ui.base_screen import BaseScreen
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
@@ -56,7 +56,7 @@ class BaseGamesScreen(BaseScreen):
 
         def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
             lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
-                           font=(UI_FONT, 8 + _F, "bold"), cursor="hand2", padx=10, pady=3)
+                           font=(UI_FONT, 8 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=3)
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
@@ -274,7 +274,7 @@ class BaseGamesScreen(BaseScreen):
             self.tree.config(cursor="")
             return
         val = self.tree.set(iid, col_key)
-        self.tree.config(cursor="hand2" if val and val != "—" else "")
+        self.tree.config(cursor=HAND_CURSOR if val and val != "—" else "")
 
     def _on_row_click(self, event):
         """Single-click UPDATE? / DLC? cells → navigate."""

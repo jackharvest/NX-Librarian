@@ -20,7 +20,7 @@ from tkinter import filedialog, ttk
 import configparser
 import threading
 
-from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST, APP_VERSION, APP_COPYRIGHT
+from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST, APP_VERSION, APP_COPYRIGHT, HAND_CURSOR
 
 _F = FONT_BOOST  # shorthand
 
@@ -133,19 +133,19 @@ class BaseScreen(tk.Frame):
         # Premium treeview with modern styling
         style.configure("Treeview",
                        font=(UI_FONT, 10 + _F),
-                       rowheight=44 + _F * 2,
+                       rowheight=52 + _F * 2,
                        borderwidth=0,
                        background=THEME["bg_secondary"],
                        foreground=THEME["text_primary"],
                        fieldbackground=THEME["bg_secondary"],
                        relief="flat")
-        
+
         style.configure("Treeview.Heading",
-                       font=(UI_FONT, 9 + _F, "bold"),
+                       font=(UI_FONT, 10 + _F, "bold"),
                        background=THEME["border_light"],
                        foreground=THEME["text_secondary"],
                        relief="flat",
-                       padding=12)
+                       padding=[16, 14])
         
         style.map("Treeview.Heading",
                  background=[("active", THEME["bg_tertiary"])])
@@ -156,7 +156,7 @@ class BaseScreen(tk.Frame):
                  foreground=[("selected", THEME["accent_primary"])])
         
         # Row striping for readability (tags applied during population)
-        style.configure("Striped.Treeview", rowheight=44)
+        style.configure("Striped.Treeview", rowheight=52)
         # We cannot map custom 'evenrow'/'oddrow' states with ttk; tagging is used instead.
         style.map("Striped.Treeview",
                  background=[("selected", THEME["bg_tertiary"])])
@@ -187,7 +187,7 @@ class BaseScreen(tk.Frame):
         # ── Back (ghost link, accent on hover)
         back = tk.Label(inner, text="← BACK", bg=THEME["bg_secondary"],
                         fg=THEME["text_muted"], font=(UI_FONT, 9 + _F, "bold"),
-                        cursor="hand2")
+                        cursor=HAND_CURSOR)
         back.bind("<Button-1>", lambda e: self._on_back())
         back.bind("<Enter>",    lambda e: back.config(fg=self.ACCENT_COLOR))
         back.bind("<Leave>",    lambda e: back.config(fg=THEME["text_muted"]))
@@ -229,7 +229,7 @@ class BaseScreen(tk.Frame):
         btn = tk.Label(parent, text=text,
                        bg=bg_n, fg=fg_n,
                        font=(UI_FONT, 9 + _F, "bold"),
-                       cursor="hand2", padx=14, pady=6)
+                       cursor=HAND_CURSOR, padx=14, pady=6)
         btn.bind("<Button-1>", lambda e: command())
         btn.bind("<Enter>",    lambda e: btn.config(bg=bg_h, fg=fg_h))
         btn.bind("<Leave>",    lambda e: btn.config(bg=bg_n, fg=fg_n))
@@ -251,18 +251,16 @@ class BaseScreen(tk.Frame):
 
     def _build_table(self):
         """Modern data table with enhanced styling and interactivity."""
-        # Container with empty state overlay capability
+        # Full-width container — no side gutters
         self.table_container = tk.Frame(self, bg=THEME["bg_primary"])
-        self.table_container.pack(fill="both", expand=True, padx=16, pady=(8, 0))
-        
-        # Table header
-        table_header = tk.Frame(self.table_container, bg=THEME["bg_secondary"],
-                               highlightthickness=1,
-                               highlightbackground=THEME["border_subtle"])
-        table_header.pack(fill="x", pady=(0, 1))
-        
+        self.table_container.pack(fill="both", expand=True)
+
+        # Toolbar — flat, seamless continuation of the nav bar
+        table_header = tk.Frame(self.table_container, bg=THEME["bg_secondary"])
+        table_header.pack(fill="x")
+
         header_inner = tk.Frame(table_header, bg=THEME["bg_secondary"])
-        header_inner.pack(fill="x", padx=12, pady=8)
+        header_inner.pack(fill="x", padx=16, pady=10)
 
         # ── RIGHT: stats counter + quality filter buttons ───────────────
         right_frame = tk.Frame(header_inner, bg=THEME["bg_secondary"])
@@ -277,7 +275,7 @@ class BaseScreen(tk.Frame):
             right_frame, text="Missing TID: 0",
             font=(UI_FONT, 8 + _F, "bold"),
             fg=THEME["text_muted"], bg=THEME["border_light"],
-            cursor="hand2", padx=10, pady=3)
+            cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_missing_tid.bind("<Button-1>", lambda e: self._toggle_missing_tid())
         self.btn_missing_tid.pack(side="left", padx=(0, 6))
 
@@ -285,7 +283,7 @@ class BaseScreen(tk.Frame):
             right_frame, text="Bad Names: 0",
             font=(UI_FONT, 8 + _F, "bold"),
             fg=THEME["text_muted"], bg=THEME["border_light"],
-            cursor="hand2", padx=10, pady=3)
+            cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_bad_names.bind("<Button-1>", lambda e: self._toggle_bad_names())
         self.btn_bad_names.pack(side="left")
 
@@ -298,11 +296,13 @@ class BaseScreen(tk.Frame):
 
         search_entry = tk.Entry(left_frame, textvariable=self.search_query,
                                 font=(UI_FONT, 10 + _F),
-                                bg=THEME["bg_tertiary"], fg=THEME["text_primary"],
-                                relief="solid", bd=1,
-                                insertbackground=THEME["accent_primary"],
-                                highlightthickness=0)
-        search_entry.pack(side="left", fill="x", expand=True, ipady=2)
+                                bg=THEME["bg_primary"], fg=THEME["text_primary"],
+                                relief="flat", bd=0,
+                                insertbackground=self.ACCENT_COLOR,
+                                highlightthickness=1,
+                                highlightbackground=THEME["border_subtle"],
+                                highlightcolor=self.ACCENT_COLOR)
+        search_entry.pack(side="left", fill="x", expand=True, ipady=5)
 
         # Subtle divider before mode-specific filter chips
         tk.Frame(left_frame, bg=THEME["border_subtle"], width=1).pack(
@@ -310,7 +310,10 @@ class BaseScreen(tk.Frame):
         filters_frame = tk.Frame(left_frame, bg=THEME["bg_secondary"])
         filters_frame.pack(side="left")
         self._build_filter_buttons(filters_frame)
-        
+
+        # 1px accent divider — clean break between toolbar and data
+        tk.Frame(self.table_container, bg=THEME["border_subtle"], height=1).pack(fill="x")
+
         # Main table with scrollbar
         col_ids = [c[0] for c in self.COLUMNS]
         self.tree = ttk.Treeview(self.table_container, columns=col_ids,
@@ -343,9 +346,9 @@ class BaseScreen(tk.Frame):
         self.tree.bind("<KeyRelease>",  lambda e: self._schedule_fix_buttons())
         self.tree.bind("<Configure>",   lambda e: self._schedule_fix_buttons())
 
-        # configure striping tags
+        # Striping tags
         self.tree.tag_configure("even", background="#1a2540")
-        self.tree.tag_configure("odd", background="#151d33")
+        self.tree.tag_configure("odd",  background="#151d33")
         
         # Right-click menu
         self._ctx_menu = tk.Menu(self, tearoff=0, bg=THEME["bg_secondary"],
@@ -434,7 +437,7 @@ class BaseScreen(tk.Frame):
         self.dl_btn = tk.Label(right_section, text="🔄 SYNC DATABASE",
                                fg=THEME["accent_primary"],
                                bg=THEME["bg_secondary"], font=(UI_FONT, 8 + _F, "bold"),
-                               cursor="hand2", relief="flat")
+                               cursor=HAND_CURSOR, relief="flat")
         self.dl_btn.pack(side="left")
         self.dl_btn.bind("<Button-1>", lambda e: self.scan(force_refresh=True))
     
@@ -630,7 +633,7 @@ class BaseScreen(tk.Frame):
                 text="✎ Fix Name",
                 bg=THEME["status_warn"], fg="#ffffff",
                 font=(UI_FONT, 8 + _F, "bold"),
-                cursor="hand2", padx=6, pady=0)
+                cursor=HAND_CURSOR, padx=6, pady=0)
             btn.bind("<Button-1>", lambda e, i=item: self._fix_item(i))
             btn.place(x=btn_x, y=btn_y, width=btn_w, height=btn_h)
             self._fix_buttons.append(btn)

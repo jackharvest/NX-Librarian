@@ -8,7 +8,7 @@ Three full-screen panels side by side:
 """
 
 import tkinter as tk
-from constants import UI_FONT, FONT_BOOST
+from constants import UI_FONT, FONT_BOOST, HAND_CURSOR
 
 _F = FONT_BOOST
 
@@ -45,7 +45,7 @@ class ColorPanel(tk.Frame):
     """Full-height clickable color panel with obvious hover highlight."""
 
     def __init__(self, parent, mode, cfg, on_select, **kwargs):
-        super().__init__(parent, bg=cfg["bg"], cursor="hand2", **kwargs)
+        super().__init__(parent, bg=cfg["bg"], cursor=HAND_CURSOR, **kwargs)
         self.mode      = mode
         self.cfg       = cfg
         self.on_select = on_select
@@ -70,31 +70,31 @@ class ColorPanel(tk.Frame):
         self._reg(self)
 
         # Top spacer — pushes content to vertical center
-        self._reg(tk.Frame(self, bg=self._bg, cursor="hand2")).pack(
+        self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR)).pack(
             fill="both", expand=True)
 
         # Centered content block
-        c = self._reg(tk.Frame(self, bg=self._bg, cursor="hand2"))
+        c = self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR))
         c.pack(fill="x", padx=40)
 
         self._reg(tk.Label(c, text=self.cfg["emoji"],
                            font=("Arial", 72 + _F * 2),
-                           bg=self._bg, cursor="hand2")).pack(anchor="center")
+                           bg=self._bg, cursor=HAND_CURSOR)).pack(anchor="center")
 
         self._reg(tk.Label(c, text=self.cfg["title"],
                            font=(UI_FONT, 26 + _F, "bold"),
                            fg="#ffffff", bg=self._bg,
-                           cursor="hand2")).pack(anchor="center", pady=(22, 0))
+                           cursor=HAND_CURSOR)).pack(anchor="center", pady=(22, 0))
 
         # Subtitle — fg changes on hover for extra clarity
         self._reg(tk.Label(c, text=self.cfg["sub"],
                            font=(UI_FONT, 11 + _F),
                            fg="#aaaaaa", bg=self._bg,
-                           cursor="hand2"),
+                           cursor=HAND_CURSOR),
                   is_sub=True).pack(anchor="center", pady=(10, 0))
 
         # Bottom spacer
-        self._reg(tk.Frame(self, bg=self._bg, cursor="hand2")).pack(
+        self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR)).pack(
             fill="both", expand=True)
 
         # Wire click + hover to every registered widget

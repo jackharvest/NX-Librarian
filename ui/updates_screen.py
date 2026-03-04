@@ -20,7 +20,7 @@ from tkinter import messagebox
 from collections import defaultdict
 import time
 
-from constants import KNOWN_REGIONS, REGION_FLAGS
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR
 from db import cache_age_string
 from ui.base_screen import BaseScreen
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
@@ -61,7 +61,7 @@ class UpdatesScreen(BaseScreen):
 
         def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
             lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
-                           font=(UI_FONT, 8 + _F, "bold"), cursor="hand2", padx=10, pady=3)
+                           font=(UI_FONT, 8 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=3)
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
