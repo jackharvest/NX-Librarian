@@ -119,8 +119,12 @@ class NXLibrarianApp:
         menu.add_separator()
         menu.add_command(label="  ⌨   Keyboard Shortcuts",
                          command=self._show_shortcuts)
+        menu.add_command(label="  ⚙   Database Mirror",
+                         command=self._show_mirror_dialog)
         menu.add_command(label="  ℹ   About",
                          command=self._show_about)
+        menu.add_command(label="  ★   Credits",
+                         command=self._show_credits)
         menu.add_separator()
         menu.add_command(label="  ✕   Exit",
                          command=self.root.quit, accelerator="Ctrl+Q")
@@ -148,6 +152,14 @@ class NXLibrarianApp:
             "Manage, organize, and renew your game collection.\n"
             "Support for base games, updates, and DLC.\n\n"
             "© 2026 • Enhanced with Premium Design")
+
+    def _show_credits(self):
+        from ui.credits import show_credits
+        show_credits(self.root)
+
+    def _show_mirror_dialog(self):
+        from ui.mirror_dialog import show_mirror_dialog
+        show_mirror_dialog(self.root)
 
     def _show_shortcuts(self):
         """Show keyboard shortcuts dialog."""

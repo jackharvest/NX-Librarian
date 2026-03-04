@@ -11,6 +11,8 @@ import configparser
 import os
 import tkinter as tk
 from constants import UI_FONT, FONT_BOOST, HAND_CURSOR, APP_VERSION, APP_COPYRIGHT, CONFIG_FILE
+from ui.tooltip import ComicTooltip
+import ui.tooltip as _tooltip
 
 _F = FONT_BOOST
 
@@ -18,25 +20,28 @@ _F = FONT_BOOST
 # bg_h is a noticeably lighter/brighter shade for obvious hover feedback.
 PANEL_CONFIG = {
     "base": {
-        "title": "BASE GAMES",
-        "emoji": "🎮",
-        "sub":   "NSP  ·  XCI",
-        "bg":    "#B8000F",
-        "bg_h":  "#F0001A",   # vibrant bright red on hover
+        "title":   "BASE GAMES",
+        "emoji":   "🎮",
+        "sub":     "NSP  ·  XCI",
+        "bg":      "#B8000F",
+        "bg_h":    "#F0001A",
+        "tooltip": "Your main game archive. Browse, rename, and verify base game files in NSP and XCI format.",
     },
     "updates": {
-        "title": "UPDATES",
-        "emoji": "🔼",
-        "sub":   "VERSION CONTROL",
-        "bg":    "#0050A8",
-        "bg_h":  "#0077FF",   # bright blue on hover
+        "title":   "UPDATES",
+        "emoji":   "🔼",
+        "sub":     "VERSION CONTROL",
+        "bg":      "#0050A8",
+        "bg_h":    "#0077FF",
+        "tooltip": "Manage game update patches. Check which versions you have and rename them to match your library.",
     },
     "dlc": {
-        "title": "DLC & ADD-ONS",
-        "emoji": "🎁",
-        "sub":   "ADD-ON CONTENT",
-        "bg":    "#007A33",
-        "bg_h":  "#00B84A",   # bright green on hover
+        "title":   "DLC & ADD-ONS",
+        "emoji":   "🎁",
+        "sub":     "ADD-ON CONTENT",
+        "bg":      "#007A33",
+        "bg_h":    "#00B84A",
+        "tooltip": "All your downloadable content in one place. Browse and organize add-on files for your Switch library.",
     },
 }
 
@@ -56,6 +61,7 @@ class ColorPanel(tk.Frame):
         self._bg_widgets   = []   # every widget that needs bg updated
         self._sub_labels   = []   # subtitle labels — fg also changes
         self._build()
+        ComicTooltip(self, cfg.get("tooltip", cfg["title"]), accent_color=cfg["bg_h"])
 
     # ------------------------------------------------------------------
     # Build
@@ -152,7 +158,9 @@ class ModeSelectScreen(tk.Frame):
         super().__init__(parent, bg="#0a0a14", **kwargs)
         self._on_select    = on_select
         self._pre_scan     = tk.BooleanVar(value=self._load_pre_scan())
+        self._tooltips     = tk.BooleanVar(value=self._load_tooltips())
         self._cache_after  = None
+        _tooltip.set_enabled(self._tooltips.get())
         self._build()
 
     def _build(self):
@@ -207,6 +215,30 @@ class ModeSelectScreen(tk.Frame):
         except Exception:
             pass
 
+    def _load_tooltips(self) -> bool:
+        try:
+            cfg = configparser.ConfigParser()
+            if os.path.exists(CONFIG_FILE):
+                cfg.read(CONFIG_FILE)
+                if cfg.has_option("Settings", "tooltips"):
+                    return cfg.getboolean("Settings", "tooltips")
+        except Exception:
+            pass
+        return True
+
+    def _save_tooltips(self, value: bool):
+        try:
+            cfg = configparser.ConfigParser()
+            if os.path.exists(CONFIG_FILE):
+                cfg.read(CONFIG_FILE)
+            if "Settings" not in cfg:
+                cfg["Settings"] = {}
+            cfg["Settings"]["tooltips"] = str(value).lower()
+            with open(CONFIG_FILE, "w") as f:
+                cfg.write(f)
+        except Exception:
+            pass
+
     @property
     def pre_scan_enabled(self) -> bool:
         return self._pre_scan.get()
@@ -245,12 +277,32 @@ class ModeSelectScreen(tk.Frame):
         self._prescan_lbl.pack(side="left", padx=(0, 14))
         self._prescan_lbl.bind("<Button-1>", lambda e: self._toggle_pre_scan())
         self._refresh_prescan_chip()
+        ComicTooltip(self._prescan_lbl,
+                     "Scans your folders automatically each time the app launches. "
+                     "Also re-scans when you enter a mode. Turn off to open instantly "
+                     "and browse the last cached results instead.",
+                     accent_color="#60a5fa")
+
+        # Tooltips toggle chip
+        self._tooltip_lbl = tk.Label(right, bg=_BAR_BG, cursor=HAND_CURSOR,
+                                     font=(UI_FONT, 8 + _F, "bold"), padx=8, pady=2)
+        self._tooltip_lbl.pack(side="left", padx=(0, 14))
+        self._tooltip_lbl.bind("<Button-1>", lambda e: self._toggle_tooltips())
+        self._refresh_tooltip_chip()
+        ComicTooltip(self._tooltip_lbl,
+                     "Show or hide hover tooltips throughout the app. "
+                     "Your preference is saved and restored on next launch.",
+                     accent_color="#60a5fa")
 
         # Cache age timer
         self._cache_lbl = tk.Label(right, bg=_BAR_BG, fg="#6b7280",
                                    font=(UI_FONT, 8 + _F))
         self._cache_lbl.pack(side="left", padx=(0, 20))
         self._tick_cache()
+        ComicTooltip(self._cache_lbl,
+                     "Time since the title database was last synced from the server. "
+                     "A fresh database ensures accurate game names and metadata.",
+                     accent_color="#6b7280")
 
         # Sync button
         sync_btn = tk.Label(right, text="🔄 SYNC DATABASE",
@@ -261,6 +313,11 @@ class ModeSelectScreen(tk.Frame):
         sync_btn.bind("<Button-1>", lambda e: self._sync_db())
         sync_btn.bind("<Enter>",    lambda e: sync_btn.config(fg="#93c5fd"))
         sync_btn.bind("<Leave>",    lambda e: sync_btn.config(fg="#60a5fa"))
+        ComicTooltip(sync_btn,
+                     "Manually pull the latest title database now. Normally not needed "
+                     "since the database auto-updates every 24 hours. Only use this if "
+                     "a game released today and you need it immediately.",
+                     accent_color="#60a5fa")
 
     def _refresh_prescan_chip(self):
         on = self._pre_scan.get()
@@ -274,6 +331,20 @@ class ModeSelectScreen(tk.Frame):
         self._pre_scan.set(not self._pre_scan.get())
         self._save_pre_scan(self._pre_scan.get())
         self._refresh_prescan_chip()
+
+    def _refresh_tooltip_chip(self):
+        on = self._tooltips.get()
+        self._tooltip_lbl.config(
+            text="💬 Tooltips  ON" if on else "💬 Tooltips  OFF",
+            bg="#1e3a5f" if on else "#2a2a3f",
+            fg="#60a5fa" if on else "#6b7280",
+        )
+
+    def _toggle_tooltips(self):
+        self._tooltips.set(not self._tooltips.get())
+        _tooltip.set_enabled(self._tooltips.get())
+        self._save_tooltips(self._tooltips.get())
+        self._refresh_tooltip_chip()
 
     def _tick_cache(self):
         """Update the cache age label every 60 seconds."""

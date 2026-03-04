@@ -60,10 +60,19 @@ class DLCScreen(BaseScreen):
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
+        from ui.tooltip import ComicTooltip
         self.btn_wrong_region = _chip("✗ Wrong Region", self._toggle_wrong_region)
         self.btn_partial      = _chip("⚠ Partial",      self._toggle_partial)
         self.btn_wrong_region.pack(side="left", padx=(0, 4))
+        ComicTooltip(self.btn_wrong_region,
+                     "Toggle visibility of DLC files that appear to be from a different "
+                     "region than the base game. These may not work correctly.",
+                     accent_color="#ef4444")
         self.btn_partial.pack(side="left")
+        ComicTooltip(self.btn_partial,
+                     "Toggle visibility of games where you have some but not all available "
+                     "DLC. Useful for identifying incomplete add-on sets.",
+                     accent_color="#f97316")
 
     def _toggle_wrong_region(self):
         self.hide_wrong_region = not self.hide_wrong_region
@@ -88,6 +97,7 @@ class DLCScreen(BaseScreen):
         if not folder or not os.path.isdir(folder):
             messagebox.showwarning("No Folder", "Please select a valid folder first.")
             return
+        self._save_folder_config(folder)
 
         if force_refresh or not self.norm_v:
             from db import load_db

@@ -15,12 +15,41 @@ from constants import HAND_CURSOR
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
-_SAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_SAFE_RE   = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_TM_RE     = re.compile(r'[™®©]')
 
 
 def _sanitize(name: str) -> str:
     """Strip filesystem-illegal characters and trim whitespace/dots."""
     return _SAFE_RE.sub('', name).strip(' .')
+
+
+def _dlc_already_has_parent(parent: str, dlc: str) -> bool:
+    """True when the DLC name already begins with the parent game's title."""
+    p = _TM_RE.sub('', parent).strip().lower()
+    d = _TM_RE.sub('', dlc).strip().lower()
+    return bool(p) and d.startswith(p)
+
+
+_BRACKET_NOISE = re.compile(
+    r'^(UPD|DLC|Switch|eShop|NSP|XCI|Base|Update|APP|'
+    r'USA|EUR|JPN|KOR|CHN|ASI|GLB|UKV|WORLD|US|EU|JP|UK|'
+    r'[01][0-9A-Fa-f]{15}|v\d+)$',
+    re.IGNORECASE)
+
+
+def _extract_dlc_descriptor(fname: str) -> str:
+    """
+    Pull meaningful descriptive text from bracketed tokens in a DLC filename,
+    ignoring TIDs, version numbers, regions, and noise keywords.
+    e.g. "Game [Full Game DLC][TID][USA][v0].nsp" → "Full Game DLC"
+    """
+    parts = []
+    for tok in re.findall(r'\[([^\]]+)\]', fname):
+        tok = tok.strip()
+        if not _BRACKET_NOISE.match(tok):
+            parts.append(tok)
+    return ' '.join(parts)
 
 
 def _propose_name(item: dict, norm_t: dict) -> str | None:
@@ -52,6 +81,26 @@ def _propose_name(item: dict, norm_t: dict) -> str | None:
         ver_m   = re.search(r'\[v(\d+)\]', fname, re.IGNORECASE)
         ver_int = int(ver_m.group(1)) if ver_m else 0
 
+    # For DLC items the item dict carries parent_name and dlc_name computed
+    # during the scan.  Combine them so the result reads:
+    #   "Mario Kart 8 Deluxe - Booster Course Pass Wave 1 [TID][v0].nsp"
+    # rather than just "Wave 1 [TID][v0].nsp" (which is all the titledb entry
+    # carries for most DLC TIDs).
+    parent_name = (item.get("parent_name") or "").strip()
+    dlc_name    = (item.get("dlc_name")    or "").strip()
+    if parent_name and parent_name != "—":
+        if dlc_name and dlc_name != "—":
+            # DB has a name — combine unless it already contains the parent title
+            if _dlc_already_has_parent(parent_name, dlc_name):
+                combined = dlc_name
+            else:
+                combined = f"{parent_name} - {dlc_name}"
+        else:
+            # No DB name — salvage any descriptive bracket tags from the filename
+            descriptor = _extract_dlc_descriptor(fname)
+            combined = f"{parent_name} - {descriptor}" if descriptor else parent_name
+        return f"{_sanitize(combined)} [{tid_upper}][v{ver_int}]{ext}"
+
     # DB name lookup — try the file's own TID first, then the base-game TID.
     # Update/DLC TIDs often have no "name" entry; the base game TID does.
     base_tid = tid_lower[:13] + "000"
@@ -69,8 +118,8 @@ def _propose_name(item: dict, norm_t: dict) -> str | None:
         stem = re.sub(r'\[v?\d+\]', ' ', stem, flags=re.IGNORECASE)
         # Remove display version strings: v1.4.643, V2.0, etc. (not preceded by a letter)
         stem = re.sub(r'(?<![A-Za-z])[vV][\d.]+', ' ', stem)
-        # Remove noise tags and leftover bracket pairs
-        stem = re.sub(r'(?i)\[?(UPD|DLC|Switch)\]?', ' ', stem)
+        # Remove noise/region tags and leftover bracket pairs
+        stem = re.sub(r'(?i)\[?(UPD|DLC|Switch|USA|EUR|JPN|KOR|CHN|ASI|TWN|WORLD|UKV|GLB|US|EU|JP|UK)\]?', ' ', stem)
         stem = re.sub(r'[\[\]]', ' ', stem)
         stem = re.sub(r'\s+', ' ', stem).strip()
         safe_name = _sanitize(stem)
@@ -115,13 +164,16 @@ class EditDialog(tk.Toplevel):
     folder : str
         Root folder of the library (informational; actual path comes from
         ``item['filepath']``).
+    norm_c : dict | None
+        CNMT database; required for DLC candidate dropdowns.
     """
 
     def __init__(self, parent_screen, items: list, norm_t: dict, folder: str,
-                 search: str = ""):
+                 search: str = "", norm_c: dict = None):
         super().__init__(parent_screen)
         self._parent = parent_screen
         self._norm_t = norm_t
+        self._norm_c = norm_c or {}
         self._folder = folder
         self._search_var = tk.StringVar(value=search)
 
@@ -130,7 +182,7 @@ class EditDialog(tk.Toplevel):
 
         self.title("Rename Files")
         self.resizable(True, True)
-        self.geometry("1060x640")
+        self.geometry("1160x640")
         self.configure(bg=_T["bg"])
         self.transient(parent_screen)
 
@@ -156,19 +208,64 @@ class EditDialog(tk.Toplevel):
     # ── plan construction ──────────────────────────────────────────────────
 
     def _build_plan(self, items: list) -> list:
+        from ui.fix_tid_dialog import _search_db_dlc, _extract_search_name
         plan = []
         for item in items:
             quality  = item.get("_quality", "ok")
             proposed = _propose_name(item, self._norm_t)
+
+            # DLC items carry parent_tid from the DLC screen scan
+            parent_tid = item.get("parent_tid", "")
+            is_dlc     = bool(parent_tid)
+
+            dlc_candidates = []
+            if is_dlc and self._norm_c:
+                dlc_name = (item.get("dlc_name") or "").strip()
+                if not dlc_name or dlc_name == "—":
+                    dlc_name = _extract_search_name(item.get("filename", ""))
+                dlc_candidates = _search_db_dlc(
+                    parent_tid, self._norm_t, self._norm_c, query=dlc_name, limit=20)
+
+            # Version int for DLC rows (updates use cur_int; base games are v0)
+            if is_dlc:
+                ver_m   = re.search(r'\[v(\d+)\]', item.get("filename", ""), re.IGNORECASE)
+                ver_int = int(ver_m.group(1)) if ver_m else 0
+            else:
+                ver_int = item.get("cur_int") or item.get("version") or 0
+
+            ext = os.path.splitext(item.get("filename", ""))[1].lower()
+
             plan.append({
-                "item":     item,
-                "quality":  quality,
-                "proposed": proposed or "",
-                "var":      tk.BooleanVar(value=proposed is not None),
-                "can_auto": proposed is not None,
-                "prop_var": None,   # filled in _add_row
+                "item":           item,
+                "quality":        quality,
+                "proposed":       proposed or "",
+                "var":            tk.BooleanVar(value=proposed is not None),
+                "can_auto":       proposed is not None,
+                "prop_var":       None,   # filled in _add_row
+                "is_dlc":         is_dlc,
+                "dlc_candidates": dlc_candidates,
+                "dlc_sel_idx":    tk.IntVar(value=0) if dlc_candidates else None,
+                "dlc_combo":      None,   # filled in _add_row
+                "dlc_ver_int":    ver_int,
+                "dlc_ext":        ext,
             })
         return plan
+
+    def _refresh_dlc_proposed(self, entry: dict):
+        """Recompute proposed filename from the selected DLC candidate."""
+        cands   = entry["dlc_candidates"]
+        idx     = entry["dlc_sel_idx"].get()
+        if not cands or idx >= len(cands):
+            return
+        _, dlc_name, dlc_tid, _ = cands[idx]
+        parent_name = (entry["item"].get("parent_name") or "").strip()
+        if parent_name and parent_name != "—" and not _dlc_already_has_parent(parent_name, dlc_name):
+            display_name = _sanitize(f"{parent_name} - {dlc_name}")
+        else:
+            display_name = _sanitize(dlc_name)
+        ver_int = entry["dlc_ver_int"]
+        ext     = entry["dlc_ext"]
+        entry["prop_var"].set(f"{display_name} [{dlc_tid.upper()}][v{ver_int}]{ext}")
 
     # ── UI construction ────────────────────────────────────────────────────
 
@@ -229,6 +326,9 @@ class EditDialog(tk.Toplevel):
         tk.Label(hdr_inner, text="→",
                  font=("Segoe UI", 9), fg=_T["text_muted"],
                  bg=_T["border_lt"], width=3, anchor="center").pack(side="left")
+        tk.Label(hdr_inner, text="DB MATCH  (DLC only)",
+                 font=("Segoe UI", 8, "bold"), fg=_T["text_dim"],
+                 bg=_T["border_lt"], width=30, anchor="w").pack(side="left", padx=(4, 0))
         tk.Label(hdr_inner, text="PROPOSED FILENAME  (click to edit)",
                  font=("Segoe UI", 8, "bold"), fg=_T["text_dim"],
                  bg=_T["border_lt"], anchor="w").pack(side="left", padx=(4, 0))
@@ -337,6 +437,24 @@ class EditDialog(tk.Toplevel):
         tk.Label(inner, text="→", font=("Segoe UI", 10),
                  fg=_T["text_muted"], bg=bg,
                  width=3, anchor="center").pack(side="left")
+
+        # DLC candidate dropdown (only for DLC items that have DB candidates)
+        if entry["is_dlc"] and entry["dlc_candidates"]:
+            combo_values = [
+                f"{name}  [{tid.upper()}]"
+                for _, name, tid, _ in entry["dlc_candidates"]
+            ]
+            combo = ttk.Combobox(inner, values=combo_values, state="readonly",
+                                 width=30, font=("Segoe UI", 9))
+            combo.current(0)
+            combo.pack(side="left", padx=(0, 6))
+            entry["dlc_combo"] = combo
+
+            def _on_pick(event, e=entry):
+                e["dlc_sel_idx"].set(e["dlc_combo"].current())
+                self._refresh_dlc_proposed(e)
+
+            combo.bind("<<ComboboxSelected>>", _on_pick)
 
         # Proposed field
         if entry["can_auto"]:

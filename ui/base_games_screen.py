@@ -61,10 +61,19 @@ class BaseGamesScreen(BaseScreen):
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
+        from ui.tooltip import ComicTooltip
         self.btn_has_update = _chip("⬆ Has Update", self._toggle_has_update)
         self.btn_no_update  = _chip("⚠ No Update",  self._toggle_no_update)
         self.btn_has_update.pack(side="left", padx=(0, 4))
+        ComicTooltip(self.btn_has_update,
+                     "Toggle visibility of games that have a matching update file "
+                     "in your Updates folder. Useful for focusing on unpatched games.",
+                     accent_color="#60a5fa")
         self.btn_no_update.pack(side="left")
+        ComicTooltip(self.btn_no_update,
+                     "Toggle visibility of games with no update file detected. "
+                     "These may be missing patches or updates you haven't downloaded yet.",
+                     accent_color="#f97316")
 
     def _toggle_has_update(self):
         self.hide_has_update = not self.hide_has_update
@@ -92,6 +101,7 @@ class BaseGamesScreen(BaseScreen):
         if not folder or not os.path.isdir(folder):
             messagebox.showwarning("No Folder", "Please select a valid folder first.")
             return
+        self._save_folder_config(folder)
 
         if force_refresh or not self.norm_v:
             from db import load_db

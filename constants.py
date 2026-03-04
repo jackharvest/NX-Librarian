@@ -26,31 +26,62 @@ CACHE_FILE  = os.path.join(os.path.expanduser("~"), ".nxlibrarian_cache.json")
 
 CACHE_DURATION = 86400  # 24 hours in seconds
 
-# --- Remote database URLs (blawar/titledb) ---
-VERSIONS_DB = "https://raw.githubusercontent.com/blawar/titledb/master/versions.json"
-CNMTS_DB    = "https://raw.githubusercontent.com/blawar/titledb/master/cnmts.json"
+# --- Database mirror configuration ---
+# Each entry: display label → base URL (trailing slash optional)
+# Files appended: versions.json, cnmts.json, US.en.json, GB.en.json, etc.
+DB_MIRRORS = {
+    "GitHub (Primary)": "https://raw.githubusercontent.com/blawar/titledb/master",
+    "jsDelivr CDN":     "https://cdn.jsdelivr.net/gh/blawar/titledb@master",
+    "Custom":           None,   # user-supplied; stored in config as db_mirror_custom
+}
+DEFAULT_MIRROR = "GitHub (Primary)"
 
-# Regional title DBs — fetched and merged; US takes precedence on shared titles.
-TITLES_DBS = {
-    "USA": "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json",
-    "EUR": "https://raw.githubusercontent.com/blawar/titledb/master/GB.en.json",
-    "JPN": "https://raw.githubusercontent.com/blawar/titledb/master/JP.ja.json",
-    "KOR": "https://raw.githubusercontent.com/blawar/titledb/master/KR.ko.json",
-    "ASI": "https://raw.githubusercontent.com/blawar/titledb/master/HK.zh.json",
-    "CHN": "https://raw.githubusercontent.com/blawar/titledb/master/CN.zh.json",
+# Files within each mirror base
+_DB_FILES = {
+    "versions": "versions.json",
+    "cnmts":    "cnmts.json",
+    "titles": {
+        "USA": "US.en.json",
+        "EUR": "GB.en.json",
+        "JPN": "JP.ja.json",
+        "KOR": "KR.ko.json",
+        "ASI": "HK.zh.json",
+        "CHN": "CN.zh.json",
+    },
 }
 
+
+def get_db_urls(base: str) -> dict:
+    """Return full URL dict for all DB files given a mirror base URL."""
+    base = base.rstrip("/")
+    return {
+        "versions": f"{base}/{_DB_FILES['versions']}",
+        "cnmts":    f"{base}/{_DB_FILES['cnmts']}",
+        "titles":   {r: f"{base}/{f}" for r, f in _DB_FILES["titles"].items()},
+    }
+
+
+# Convenience constants derived from the default mirror (backward compat)
+_DEFAULT_URLS = get_db_urls(DB_MIRRORS[DEFAULT_MIRROR])
+VERSIONS_DB = _DEFAULT_URLS["versions"]
+CNMTS_DB    = _DEFAULT_URLS["cnmts"]
+TITLES_DBS  = _DEFAULT_URLS["titles"]
+
 # --- Filename quality check ---
-_RE_BRACKET_TID = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
-_RE_BRACKET_VER = re.compile(r'\[v\d+\]', re.IGNORECASE)
-_RE_DISPLAY_VER = re.compile(r'(?<![A-Za-z])[vV]\d[\d.]*')   # e.g. v1.0.0, v2.3
-_RE_ANY_BRACKET = re.compile(r'\[')
+_RE_BRACKET_TID    = re.compile(r'\[([01][0-9A-Fa-f]{15})\]')
+_RE_BRACKET_VER    = re.compile(r'\[v\d+\]', re.IGNORECASE)
+_RE_BRACKET_REGION = re.compile(
+    r'\[(USA|EUR|JPN|KOR|CHN|ASI|TWN|WORLD|UKV|GLB|US|EU|JP|UK)\]',
+    re.IGNORECASE)
+_RE_DISPLAY_VER    = re.compile(r'(?<![A-Za-z])[vV]\d[\d.]*')   # e.g. v1.0.0, v2.3
+_RE_ANY_BRACKET    = re.compile(r'\[')
 
 
 def is_clean_filename(fname: str) -> bool:
     """
-    Return True only if the filename matches the expected convention exactly:
+    Return True if the filename follows the expected convention:
         Game Name [TitleID][vVERSION].ext
+    An optional region tag like [USA] or [EUR] is also accepted.
     Flags extra tokens like [APP], [DLC], v1.0.0, etc. as bad names.
     """
     stem = os.path.splitext(fname)[0]
@@ -58,9 +89,10 @@ def is_clean_filename(fname: str) -> bool:
         return False
     if not _RE_BRACKET_VER.search(stem):
         return False
-    # Strip the two expected tokens and check nothing else is left
+    # Strip the expected tokens (region optional) then check nothing else remains
     cleaned = _RE_BRACKET_TID.sub('', stem)
     cleaned = _RE_BRACKET_VER.sub('', cleaned)
+    cleaned = _RE_BRACKET_REGION.sub('', cleaned)
     if _RE_ANY_BRACKET.search(cleaned):   # extra [whatever] token
         return False
     if _RE_DISPLAY_VER.search(cleaned):   # leftover v1.0.0 style string

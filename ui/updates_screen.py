@@ -65,12 +65,25 @@ class UpdatesScreen(BaseScreen):
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
+        from ui.tooltip import ComicTooltip
         self.btn_latest  = _chip("✓ Latest",    self._toggle_latest)
         self.btn_outdated = _chip("⚠ Old Update", self._toggle_outdated)
         self.btn_base    = _chip("🎮 Base",      self._toggle_base)
         self.btn_latest.pack(side="left", padx=(0, 4))
+        ComicTooltip(self.btn_latest,
+                     "Toggle visibility of files that are already the latest known "
+                     "version for their game. Click to hide them and focus on outdated ones.",
+                     accent_color="#60a5fa")
         self.btn_outdated.pack(side="left", padx=(0, 4))
+        ComicTooltip(self.btn_outdated,
+                     "Toggle visibility of update files where a newer version exists. "
+                     "These are superseded patches you may want to replace.",
+                     accent_color="#ef4444")
         self.btn_base.pack(side="left")
+        ComicTooltip(self.btn_base,
+                     "Toggle visibility of files detected as base games sitting in "
+                     "your Updates folder. These are likely misplaced and should be moved.",
+                     accent_color="#06d6d0")
 
     def _toggle_latest(self):
         self.hide_latest = not self.hide_latest
@@ -105,6 +118,7 @@ class UpdatesScreen(BaseScreen):
         if not folder or not os.path.isdir(folder):
             messagebox.showwarning("No Folder", "Please select a valid folder first.")
             return
+        self._save_folder_config(folder)
 
         if force_refresh or not self.norm_v:
             from db import load_db

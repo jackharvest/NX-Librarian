@@ -21,6 +21,7 @@ import configparser
 import threading
 
 from constants import COLOR_BG, CONFIG_FILE, UI_FONT, FONT_BOOST, APP_VERSION, APP_COPYRIGHT, HAND_CURSOR
+from ui.tooltip import ComicTooltip
 
 _F = FONT_BOOST  # shorthand
 
@@ -195,6 +196,7 @@ class BaseScreen(tk.Frame):
         back.bind("<Enter>",    lambda e: back.config(fg=self.ACCENT_COLOR))
         back.bind("<Leave>",    lambda e: back.config(fg=THEME["text_muted"]))
         back.pack(side="left")
+        ComicTooltip(back, "Goes... back.", accent_color="#6b7280")
 
         # Vertical divider
         tk.Frame(inner, bg=THEME["border_subtle"], width=1).pack(
@@ -208,13 +210,25 @@ class BaseScreen(tk.Frame):
         # ── Right: SCAN → BROWSE → path entry (fills center)
         scan_btn = self._create_button(inner, "⟳  SCAN", self.scan, primary=True)
         scan_btn.pack(side="right")
+        ComicTooltip(scan_btn,
+                     "Scan the folder for game files and match them against the title database. "
+                     "Results appear in the table. Use Ctrl+S as a shortcut.",
+                     accent_color=self.ACCENT_COLOR)
 
         browse_btn = self._create_button(inner, "BROWSE", self._browse)
         browse_btn.pack(side="right", padx=(0, 10))
+        ComicTooltip(browse_btn,
+                     "Open a folder picker to choose your game library folder. "
+                     "You can also type or paste a path directly into the field.",
+                     accent_color=self.ACCENT_COLOR)
 
         self._undo_btn = self._create_button(inner, "↩ UNDO", self._undo_rename)
         self._undo_btn.pack(side="right", padx=(0, 6))
         self._refresh_undo_btn()
+        ComicTooltip(self._undo_btn,
+                     "Undo the last batch of renames, restoring all files to their "
+                     "previous filenames. Only the most recent rename batch can be undone.",
+                     accent_color=self.ACCENT_COLOR)
 
         # Path entry — fills remaining space, accent border on focus
         self.path_entry = tk.Entry(inner, textvariable=self.target_folder,
@@ -226,6 +240,10 @@ class BaseScreen(tk.Frame):
                               highlightbackground=THEME["border_subtle"],
                               highlightcolor=self.ACCENT_COLOR)
         self.path_entry.pack(side="left", fill="x", expand=True, padx=(24, 0), ipady=6)
+        ComicTooltip(self.path_entry,
+                     "Path to your game folder. Type or paste a path here, or use "
+                     "the BROWSE button. The path is saved after each successful scan.",
+                     accent_color=self.ACCENT_COLOR)
 
     def _create_button(self, parent, text, command, primary=False):
         """Create a styled Label-based button (works correctly on macOS and Windows)."""
@@ -409,6 +427,10 @@ class BaseScreen(tk.Frame):
             cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_missing_tid.bind("<Button-1>", lambda e: self._toggle_missing_tid())
         self.btn_missing_tid.pack(side="left", padx=(0, 6))
+        ComicTooltip(self.btn_missing_tid,
+                     "Files where no Title ID was found in the filename at all. "
+                     "Click to toggle filtering these out of the table.",
+                     accent_color=self.ACCENT_COLOR)
 
         self.btn_bad_names = tk.Label(
             right_frame, text="Bad Names: 0",
@@ -417,6 +439,10 @@ class BaseScreen(tk.Frame):
             cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_bad_names.bind("<Button-1>", lambda e: self._toggle_bad_names())
         self.btn_bad_names.pack(side="left", padx=(0, 6))
+        ComicTooltip(self.btn_bad_names,
+                     "Files with a non-standard filename format. These can usually "
+                     "be fixed automatically using the rename tool. Click to filter.",
+                     accent_color=self.ACCENT_COLOR)
 
         self.btn_unknown_tid = tk.Label(
             right_frame, text="Unknown TID: 0",
@@ -425,6 +451,10 @@ class BaseScreen(tk.Frame):
             cursor=HAND_CURSOR, padx=10, pady=3)
         self.btn_unknown_tid.bind("<Button-1>", lambda e: self._toggle_unknown_tid())
         self.btn_unknown_tid.pack(side="left")
+        ComicTooltip(self.btn_unknown_tid,
+                     "Files with a Title ID that isn't in the database — possibly "
+                     "homebrew, unreleased titles, or a corrupt ID. Click to filter.",
+                     accent_color=self.ACCENT_COLOR)
 
         # ── LEFT: live search + mode-specific filter buttons ───────────
         left_frame = tk.Frame(header_inner, bg=THEME["bg_secondary"])
@@ -442,6 +472,10 @@ class BaseScreen(tk.Frame):
                                 highlightbackground=THEME["border_subtle"],
                                 highlightcolor=self.ACCENT_COLOR)
         search_entry.pack(side="left", fill="x", expand=True, ipady=5)
+        ComicTooltip(search_entry,
+                     "Filter the table by filename. Results update instantly as you type. "
+                     "Use Ctrl+F to jump here from anywhere.",
+                     accent_color=self.ACCENT_COLOR)
 
         # Subtle divider before mode-specific filter chips
         tk.Frame(left_frame, bg=THEME["border_subtle"], width=1).pack(
@@ -580,6 +614,10 @@ class BaseScreen(tk.Frame):
                                cursor=HAND_CURSOR, relief="flat")
         self.dl_btn.pack(side="left")
         self.dl_btn.bind("<Button-1>", lambda e: self.scan(force_refresh=True))
+        ComicTooltip(self.dl_btn,
+                     "Force a fresh download of the title database right now. "
+                     "Normally not needed — the database auto-updates every 24 hours.",
+                     accent_color=self.ACCENT_COLOR)
     
     def _update_status(self, message: str, status_type: str = "info"):
         """Update status with color coding."""
@@ -812,7 +850,7 @@ class BaseScreen(tk.Frame):
         bad_items = [d for d in self.all_data
                      if d.get("_quality") in ("bad_name", "missing_tid")]
         EditDialog(self, bad_items, self.norm_t, self.target_folder.get(),
-                   search=item["filename"])
+                   search=item["filename"], norm_c=self.norm_c)
 
     def _fix_tid_item(self, item: dict):
         """Open the Fix TID dialog pre-filtered to this item."""
@@ -874,4 +912,4 @@ class BaseScreen(tk.Frame):
             return
 
         from ui.edit_dialog import EditDialog
-        EditDialog(self, items, self.norm_t, self.target_folder.get())
+        EditDialog(self, items, self.norm_t, self.target_folder.get(), norm_c=self.norm_c)
