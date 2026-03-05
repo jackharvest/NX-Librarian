@@ -1,4 +1,4 @@
-; installer/nxlibrarian.nsi — NSIS installer for NX-Librarian (Windows)
+; installer/nxlibrarian.nsi - NSIS installer for NX-Librarian (Windows)
 ;
 ; Build:
 ;   makensis installer\nxlibrarian.nsi
@@ -11,7 +11,7 @@
 Unicode True
 
 !define APP_NAME      "NX-Librarian"
-!define APP_VERSION   "3.0.0-beta.1"
+!define APP_VERSION   "3.0.0-beta.3"
 !define APP_EXE       "NX-Librarian.exe"
 !define REGKEY        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NX-Librarian"
 !define UNINSTALLER   "Uninstall.exe"
@@ -25,7 +25,9 @@ SetCompressor /SOLID lzma
 ; the user page will offer to escalate for Program Files install.
 RequestExecutionLevel user
 
-; ── MUI ──────────────────────────────────────────────────────────────────────
+; ---------------------------------------------------------------------------
+; MUI
+; ---------------------------------------------------------------------------
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
@@ -48,7 +50,9 @@ Page custom InstallModePageCreate InstallModePageLeave
 
 !insertmacro MUI_LANGUAGE "English"
 
-; ── Install mode custom page ──────────────────────────────────────────────────
+; ---------------------------------------------------------------------------
+; Install mode custom page
+; ---------------------------------------------------------------------------
 !include "nsDialogs.nsh"
 Var Dialog
 Var RadioPortable
@@ -96,7 +100,9 @@ Function InstallModePageLeave
     ${NSD_GetState} $CheckDesktop $DesktopShortcut
 FunctionEnd
 
-; ── Installer ─────────────────────────────────────────────────────────────────
+; ---------------------------------------------------------------------------
+; Installer
+; ---------------------------------------------------------------------------
 Section "Main Application" SecMain
     SectionIn RO
 
@@ -119,7 +125,7 @@ Section "Main Application" SecMain
             CreateShortcut "$DESKTOP\NX-Librarian.lnk" "$INSTDIR\${APP_EXE}"
         ${EndIf}
 
-        ; Registry (HKCU — no UAC required)
+        ; Registry (HKCU - no UAC required)
         WriteRegStr   HKCU "${REGKEY}" "DisplayName"     "${APP_NAME}"
         WriteRegStr   HKCU "${REGKEY}" "DisplayVersion"  "${APP_VERSION}"
         WriteRegStr   HKCU "${REGKEY}" "Publisher"       "jackharvest"
@@ -133,7 +139,9 @@ Section "Main Application" SecMain
     ${EndIf}
 SectionEnd
 
-; ── Uninstaller ───────────────────────────────────────────────────────────────
+; ---------------------------------------------------------------------------
+; Uninstaller
+; ---------------------------------------------------------------------------
 Section "Uninstall"
     Delete "$INSTDIR\${APP_EXE}"
     Delete "$INSTDIR\${UNINSTALLER}"
