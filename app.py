@@ -243,8 +243,11 @@ class NXLibrarianApp:
                 return
             if result:
                 tag, asset_url, notes, html_url = result
-                self.root.after(0, lambda: self._on_update_found(
-                    tag, asset_url, notes, html_url))
+                def _show(t=tag, a=asset_url, n=notes, h=html_url):
+                    self._on_update_found(t, a, n, h)
+                    from ui.update_dialog import UpdateDialog
+                    UpdateDialog(self._current_frame or self.root, t, a, n, h)
+                self.root.after(0, _show)
             else:
                 self.root.after(0, lambda: messagebox.showinfo(
                     "Up to Date", "You're already running the latest version."))
