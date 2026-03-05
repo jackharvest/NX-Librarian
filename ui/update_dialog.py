@@ -42,30 +42,32 @@ class UpdateDialog(tk.Toplevel):
     """
 
     def __init__(self, parent, version, asset_url, notes, html_url, quit_fn=None):
-        super().__init__(parent)
+        root = parent.winfo_toplevel()
+        super().__init__(root)
         self._version   = version
         self._asset_url = asset_url
         self._notes     = notes
         self._html_url  = html_url
-        self._quit_fn   = quit_fn or parent.winfo_toplevel().quit
+        self._quit_fn   = quit_fn or root.quit
 
         self.title(f"Update Available — NX-Librarian v{version}")
         self.configure(bg=_BG)
         self.resizable(False, False)
-        self.transient(parent)
+        self.transient(root)
         self.grab_set()
 
         self._build()
 
-        # Centre over parent
+        # Centre over the root window
         self.update_idletasks()
-        pw = parent.winfo_rootx()
-        py = parent.winfo_rooty()
-        ph = parent.winfo_height()
-        pw2 = parent.winfo_width()
-        w, h = self.winfo_width(), self.winfo_height()
-        x = pw + (pw2 - w) // 2
-        y = py + (ph - h) // 2
+        rw = root.winfo_width()
+        rh = root.winfo_height()
+        rx = root.winfo_rootx()
+        ry = root.winfo_rooty()
+        w  = self.winfo_width()
+        h  = self.winfo_height()
+        x  = rx + (rw - w) // 2
+        y  = ry + (rh - h) // 2
         self.geometry(f"+{x}+{y}")
 
     # ------------------------------------------------------------------

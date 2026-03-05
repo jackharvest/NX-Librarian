@@ -11,7 +11,7 @@
 Unicode True
 
 !define APP_NAME      "NX-Librarian"
-!define APP_VERSION   "3.0.0-beta.7"
+!define APP_VERSION   "3.0.0-beta.8"
 !define APP_EXE       "NX-Librarian.exe"
 !define REGKEY        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NX-Librarian"
 !define UNINSTALLER   "Uninstall.exe"
