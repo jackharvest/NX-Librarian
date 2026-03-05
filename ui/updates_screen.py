@@ -16,18 +16,21 @@ This is UTTERLY DIFFERENT from v2.
 import os
 import re
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from collections import defaultdict
 import time
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, is_clean_filename
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, UI_FONT, FONT_BOOST, is_clean_filename
 from db import cache_age_string
-from ui.base_screen import BaseScreen
+from ui.base_screen import BaseScreen, THEME
+from ui import icon_cache
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
+
+_F = FONT_BOOST
 
 
 _COLUMNS = [
-    ("filename", "FILENAME",  500, True,  "w"),
+    ("filename", "FILENAME",  300, True,  "w"),
     ("tid",      "TITLE ID",  145, False, "center"),
     ("cur_ver",  "CURRENT",    85, False, "center"),
     ("lat_ver",  "LATEST",     85, False, "center"),
@@ -43,12 +46,40 @@ class UpdatesScreen(BaseScreen):
     MODE_LABEL   = "VERSION CONTROL CENTER"
     ACCENT_COLOR = "#60a5fa"
     COLUMNS      = _COLUMNS
+    TREE_STYLE   = "Updates.Treeview"
 
     def __init__(self, *args, **kwargs):
-        self.hide_latest   = False
-        self.hide_outdated = False
-        self.hide_base     = False
+        self.hide_latest         = False
+        self.hide_outdated       = False
+        self.hide_base           = False
+        self._art_labels         = []
+        self._art_hover_iid      = None
+        self._art_hover_clear_id = None
         super().__init__(*args, **kwargs)
+        if icon_cache.is_enabled():
+            self.tree.config(style="Updates.Art.Treeview")
+        self.tree.bind("<Leave>",
+            lambda e: (self.tree.config(cursor=""), self._schedule_art_hover_clear()))
+
+    # ------------------------------------------------------------------
+    # Styles
+    # ------------------------------------------------------------------
+
+    def _setup_styles(self):
+        super()._setup_styles()
+        style = ttk.Style()
+        for name, rowh in [("Updates.Treeview", 52), ("Updates.Art.Treeview", 72)]:
+            style.configure(name,
+                            font=(UI_FONT, 10 + _F),
+                            rowheight=rowh,
+                            borderwidth=0,
+                            background=THEME["bg_secondary"],
+                            foreground=THEME["text_primary"],
+                            fieldbackground=THEME["bg_secondary"],
+                            relief="flat")
+            style.map(name,
+                      background=[("selected", THEME["bg_tertiary"])],
+                      foreground=[("selected", THEME["accent_primary"])])
 
     # ------------------------------------------------------------------
     # Filter buttons — modern chip-style filters
@@ -61,28 +92,33 @@ class UpdatesScreen(BaseScreen):
 
         def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
             lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
-                           font=(UI_FONT, 8 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=3)
+                           font=(UI_FONT, 9 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=6)
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
+        def _div():
+            tk.Frame(parent, bg="#2a3f5f", width=1).pack(side="left", fill="y", pady=8, padx=6)
+
         from ui.tooltip import ComicTooltip
-        self.btn_latest  = _chip("✓ Latest",    self._toggle_latest)
+        self.btn_latest  = _chip("✓ Latest",     self._toggle_latest)
         self.btn_outdated = _chip("⚠ Old Update", self._toggle_outdated)
-        self.btn_base    = _chip("🎮 Base",      self._toggle_base)
-        self.btn_latest.pack(side="left", padx=(0, 4))
+        self.btn_base    = _chip("🎮 Base",       self._toggle_base)
+        self.btn_latest.pack(side="left")
         ComicTooltip(self.btn_latest,
-                     "Toggle visibility of files that are already the latest known "
-                     "version for their game. Click to hide them and focus on outdated ones.",
+                     "Show only files that are already the latest known version. "
+                     "Click again to return to full view.",
                      accent_color="#60a5fa")
-        self.btn_outdated.pack(side="left", padx=(0, 4))
+        _div()
+        self.btn_outdated.pack(side="left")
         ComicTooltip(self.btn_outdated,
-                     "Toggle visibility of update files where a newer version exists. "
+                     "Show only update files where a newer version exists in the database. "
                      "These are superseded patches you may want to replace.",
                      accent_color="#ef4444")
+        _div()
         self.btn_base.pack(side="left")
         ComicTooltip(self.btn_base,
-                     "Toggle visibility of files detected as base games sitting in "
-                     "your Updates folder. These are likely misplaced and should be moved.",
+                     "Show only files detected as base games sitting in your Updates folder. "
+                     "These are likely misplaced and should be moved.",
                      accent_color="#06d6d0")
 
     def _toggle_latest(self):
@@ -303,11 +339,11 @@ class UpdatesScreen(BaseScreen):
 
             if q and q not in fname.lower() and q not in tid.lower():
                 continue
-            if self.hide_latest and tag == "latest":
+            if self.hide_latest and tag != "latest":
                 continue
-            if self.hide_outdated and tag == "outdated":
+            if self.hide_outdated and tag != "outdated":
                 continue
-            if self.hide_base and tag == "base":
+            if self.hide_base and tag != "base":
                 continue
 
             values = tuple(item[col[0]] for col in self.COLUMNS)
@@ -346,9 +382,15 @@ class UpdatesScreen(BaseScreen):
     # ------------------------------------------------------------------
 
     def _place_fix_buttons(self):
-        """Extend base class to also overlay ⚠ on v0/base rows."""
+        """Extend base class to also overlay ⚠ on v0/base rows and art."""
         super()._place_fix_buttons()
         self._place_base_warn_overlays()
+        self._place_art_overlays()
+        for btn in self._fix_buttons:
+            try:
+                btn.lift()
+            except Exception:
+                pass
 
     def _place_base_warn_overlays(self):
         """Overlay yellow ⚠ v0 on the CURRENT column for rows tagged 'base'."""
@@ -391,6 +433,241 @@ class UpdatesScreen(BaseScreen):
         BaseMisplacedDialog(self, item, self.norm_t)
 
     # ------------------------------------------------------------------
+    # Art Mode overlays
+    # ------------------------------------------------------------------
+
+    def _clear_art_overlays(self):
+        for entry in self._art_labels:
+            try:
+                entry["label"].destroy()
+            except Exception:
+                pass
+        self._art_labels = []
+        self._art_hover_iid = None
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+            self._art_hover_clear_id = None
+
+    def _on_scroll_tick(self):
+        self._place_art_overlays()
+        for btn in self._fix_buttons:
+            try:
+                btn.lift()
+            except Exception:
+                pass
+
+    def _forward_scroll(self, event):
+        if event.num == 4:
+            self._push_scroll(-1.0)
+        elif event.num == 5:
+            self._push_scroll(1.0)
+        else:
+            self._push_scroll(-event.delta / 120.0)
+
+    def _place_art_overlays(self):
+        """Overlay base-game art on the filename column of each visible row."""
+        if not icon_cache.is_enabled():
+            return
+
+        fname_idx  = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
+        tree_off_x = self.tree.winfo_x()
+        tree_off_y = self.tree.winfo_y()
+
+        wanted = {}
+        for iid in self.tree.get_children():
+            values = self.tree.item(iid, "values")
+            if not values:
+                continue
+            filename = values[fname_idx]
+            item = next((d for d in self.all_data if d.get("filename") == filename), None)
+            if not item:
+                continue
+            # Art is keyed to the base game TID, not the update TID
+            art_tid = item.get("base_tid", "").lower()
+            if not art_tid:
+                continue
+            db_entry   = self.norm_t.get(art_tid) or {}
+            icon_url   = db_entry.get("iconUrl",   "")
+            banner_url = db_entry.get("bannerUrl", "")
+            if not icon_url and not banner_url:
+                continue
+            cell = self.tree.bbox(iid, "filename")
+            if not cell:
+                continue
+            cx, cy, cw, ch = cell
+            tags = self.tree.item(iid, "tags")
+            if "unknown_tid" in tags:
+                row_bg = "#2d1f47"
+            elif "even" in tags:
+                row_bg = "#1a2540"
+            else:
+                row_bg = "#151d33"
+            wanted[iid] = dict(
+                tid=art_tid, filename=filename,
+                icon_url=icon_url, banner_url=banner_url,
+                row_bg=row_bg,
+                abs_x=tree_off_x + cx, abs_y=tree_off_y + cy, cw=cw, ch=ch,
+            )
+
+        existing       = {e["iid"]: e for e in self._art_labels}
+        new_art_labels = []
+
+        for iid, info in wanted.items():
+            if iid in existing:
+                entry = existing.pop(iid)
+                entry["label"].place(x=info["abs_x"], y=info["abs_y"],
+                                     width=info["cw"], height=info["ch"])
+                if (entry["cell_w"] != info["cw"]
+                        or entry["cell_h"] != info["ch"]
+                        or entry["row_bg"] != info["row_bg"]):
+                    entry["cell_w"] = info["cw"]
+                    entry["cell_h"] = info["ch"]
+                    entry["row_bg"] = info["row_bg"]
+                    photo = icon_cache.get_photo(
+                        info["tid"], info["cw"], info["ch"], info["row_bg"],
+                        hover=False, overlay_text=info["filename"])
+                    if photo:
+                        try:
+                            entry["label"].config(image=photo)
+                            entry["photo"] = photo
+                        except Exception:
+                            pass
+                new_art_labels.append(entry)
+            else:
+                photo = icon_cache.get_photo(
+                    info["tid"], info["cw"], info["ch"], info["row_bg"],
+                    hover=False, overlay_text=info["filename"])
+                lbl = tk.Label(self.table_container, bd=0,
+                               highlightthickness=0, bg=info["row_bg"])
+                if photo:
+                    lbl.config(image=photo)
+                entry = dict(
+                    label=lbl, iid=iid, tid=info["tid"],
+                    cell_w=info["cw"], cell_h=info["ch"],
+                    row_bg=info["row_bg"], photo=photo,
+                    overlay_text=info["filename"],
+                )
+                lbl.bind("<Enter>",      lambda e, i=iid: self._set_art_hover(i))
+                lbl.bind("<Leave>",      lambda e: self._schedule_art_hover_clear())
+                lbl.bind("<Button-1>",   lambda e, i=iid: self.tree.selection_set(i))
+                lbl.bind("<MouseWheel>", self._forward_scroll)
+                lbl.bind("<Button-4>",   self._forward_scroll)
+                lbl.bind("<Button-5>",   self._forward_scroll)
+                lbl.place(x=info["abs_x"], y=info["abs_y"],
+                          width=info["cw"], height=info["ch"])
+                new_art_labels.append(entry)
+                icon_cache.request_icon(info["tid"], info["icon_url"], self._on_icon_ready,
+                                        banner_url=info["banner_url"])
+
+        for iid, entry in existing.items():
+            if iid == self._art_hover_iid:
+                self._art_hover_iid = None
+            try:
+                entry["label"].destroy()
+            except Exception:
+                pass
+
+        for entry in new_art_labels:
+            entry["label"].lift()
+
+        self._art_labels = new_art_labels
+
+    def _art_hover_entry(self, entry: dict, hover: bool):
+        photo = icon_cache.get_photo(
+            entry["tid"], entry["cell_w"], entry["cell_h"], entry["row_bg"], hover,
+            overlay_text=entry.get("overlay_text", ""))
+        if photo:
+            try:
+                entry["label"].config(image=photo)
+                entry["photo"] = photo
+            except Exception:
+                pass
+
+    def _set_art_hover(self, new_iid):
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+            self._art_hover_clear_id = None
+        if new_iid == self._art_hover_iid:
+            return
+        if self._art_hover_iid:
+            for en in self._art_labels:
+                if en["iid"] == self._art_hover_iid:
+                    self._art_hover_entry(en, False)
+        self._art_hover_iid = new_iid
+        for en in self._art_labels:
+            if en["iid"] == new_iid:
+                self._art_hover_entry(en, True)
+
+    def _schedule_art_hover_clear(self):
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+        self._art_hover_clear_id = self.after(30, self._do_art_hover_clear)
+
+    def _do_art_hover_clear(self):
+        self._art_hover_clear_id = None
+        if self._art_hover_iid:
+            for en in self._art_labels:
+                if en["iid"] == self._art_hover_iid:
+                    self._art_hover_entry(en, False)
+            self._art_hover_iid = None
+
+    def _on_icon_ready(self, tid: str):
+        try:
+            self.after(0, lambda t=tid: self._update_art_for_tid(t))
+        except Exception:
+            pass
+
+    def _update_art_for_tid(self, tid: str):
+        matches = [e for e in self._art_labels if e["tid"] == tid]
+        for entry in matches:
+            photo = icon_cache.get_photo(
+                entry["tid"], entry["cell_w"], entry["cell_h"],
+                entry["row_bg"], hover=False,
+                overlay_text=entry.get("overlay_text", ""))
+            if photo:
+                try:
+                    entry["label"].config(image=photo)
+                    entry["photo"] = photo
+                    self._update_status("🖼 Art loaded", "success")
+                except Exception:
+                    pass
+        if not matches:
+            self._schedule_fix_buttons()
+
+    def _force_art_download(self, tid: str, icon_url: str, banner_url: str = ""):
+        icon_cache.clear_icon(tid)
+        icon_cache.request_icon(tid, icon_url, self._on_icon_ready, banner_url=banner_url)
+        self._update_status("🖼 Downloading art…", "info")
+
+    def _on_art_mode_changed(self):
+        if icon_cache.is_enabled():
+            self.tree.config(style="Updates.Art.Treeview")
+        else:
+            self._clear_art_overlays()
+            self.tree.config(style="Updates.Treeview")
+        icon_cache.invalidate_photo_cache()
+        self.refresh_table()
+
+    def _invalidate_art_renders(self):
+        icon_cache.invalidate_photo_cache()
+
+    def _on_tree_motion(self, event):
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self._set_art_hover(iid)
+        else:
+            self._schedule_art_hover_clear()
+
+    # ------------------------------------------------------------------
     # Cross-screen navigation
     # ------------------------------------------------------------------
 
@@ -404,6 +681,16 @@ class UpdatesScreen(BaseScreen):
                 short = fname[:40] + "…" if len(fname) > 40 else fname
                 add_fn(f"🎮 Jump to Base Game for {short}",
                        lambda t=item["base_tid"]: self.navigate_to("base", t))
+                # Art download
+                art_tid  = item.get("base_tid", "").lower()
+                db_entry = self.norm_t.get(art_tid) or {}
+                icon_url   = db_entry.get("iconUrl",   "")
+                banner_url = db_entry.get("bannerUrl", "")
+                if icon_url or banner_url:
+                    cached    = art_tid in icon_cache._pil_cache
+                    art_label = "🖼  Re-download Art" if cached else "🖼  Download Art"
+                    add_fn(art_label,
+                           lambda t=art_tid, u=icon_url, b=banner_url: self._force_art_download(t, u, b))
                 return
 
     def _on_row_double_click(self, event):

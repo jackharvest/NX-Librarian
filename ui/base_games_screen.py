@@ -14,10 +14,12 @@ This is UTTERLY TRANSFORMED from v2.
 
 import os
 import re
+import configparser
+from collections import defaultdict
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, UI_FONT, FONT_BOOST, is_clean_filename
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, UI_FONT, FONT_BOOST, is_clean_filename, CONFIG_FILE
 from db import cache_age_string
 from ui.base_screen import BaseScreen, THEME
 from ui import icon_cache
@@ -46,8 +48,8 @@ class BaseGamesScreen(BaseScreen):
     TREE_STYLE   = "BaseGames.Treeview"
 
     def __init__(self, *args, **kwargs):
-        self.hide_has_update     = False
-        self.hide_no_update      = False
+        self.show_update_missing = False   # "Update Missing" toggle
+        self.dlc_filter_state    = 0       # 0=off  1=Missing  2=Partial
         self._art_labels         = []
         self._art_hover_iid      = None
         self._art_hover_clear_id = None
@@ -66,7 +68,7 @@ class BaseGamesScreen(BaseScreen):
     def _setup_styles(self):
         super()._setup_styles()
         style = ttk.Style()
-        for name, rowh in [("BaseGames.Treeview", 52), ("BaseGames.Art.Treeview", 72)]:
+        for name, rowh in [("BaseGames.Treeview", 58), ("BaseGames.Art.Treeview", 76)]:
             style.configure(name,
                             font=(UI_FONT, 10 + _F),
                             rowheight=rowh,
@@ -85,41 +87,52 @@ class BaseGamesScreen(BaseScreen):
 
     def _build_filter_buttons(self, parent):
         """Filter chips — styled Labels."""
-        from constants import UI_FONT, FONT_BOOST
-        _F = FONT_BOOST
+        from ui.tooltip import ComicTooltip
 
         def _chip(text, cmd, off_bg="#2a3f5f", off_fg="#9ca3af"):
             lbl = tk.Label(parent, text=text, bg=off_bg, fg=off_fg,
-                           font=(UI_FONT, 8 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=3)
+                           font=(UI_FONT, 9 + _F, "bold"), cursor=HAND_CURSOR, padx=10, pady=6)
             lbl.bind("<Button-1>", lambda e: cmd())
             return lbl
 
-        from ui.tooltip import ComicTooltip
-        self.btn_has_update = _chip("⬆ Has Update", self._toggle_has_update)
-        self.btn_no_update  = _chip("⚠ No Update",  self._toggle_no_update)
-        self.btn_has_update.pack(side="left", padx=(0, 4))
-        ComicTooltip(self.btn_has_update,
-                     "Toggle visibility of games that have a matching update file "
-                     "in your Updates folder. Useful for focusing on unpatched games.",
-                     accent_color="#60a5fa")
-        self.btn_no_update.pack(side="left")
-        ComicTooltip(self.btn_no_update,
-                     "Toggle visibility of games with no update file detected. "
-                     "These may be missing patches or updates you haven't downloaded yet.",
+        def _div():
+            tk.Frame(parent, bg="#2a3f5f", width=1).pack(side="left", fill="y", pady=8, padx=6)
+
+        # Update Missing button (simple toggle)
+        self.btn_update_missing = _chip("⬆ Update Missing", self._toggle_update_missing)
+        self.btn_update_missing.pack(side="left")
+        ComicTooltip(self.btn_update_missing,
+                     "Show only games where an update was released but you don't have it.",
                      accent_color="#f97316")
 
-    def _toggle_has_update(self):
-        self.hide_has_update = not self.hide_has_update
-        self.btn_has_update.config(
-            bg="#60a5fa" if self.hide_has_update else "#2a3f5f",
-            fg="#0a0a14" if self.hide_has_update else "#9ca3af")
+        _div()
+
+        # DLC filter (three-way: off → Missing → Partial → off)
+        self.btn_dlc_filter = _chip("DLC Missing", self._cycle_dlc_filter)
+        self.btn_dlc_filter.pack(side="left")
+        ComicTooltip(self.btn_dlc_filter,
+                     "Cycle DLC filter: Off → show games with missing DLC → show games with partial DLC.",
+                     accent_color="#a78bfa")
+
+    # DLC filter cycle labels/colors
+    _DLC_STATES = [
+        # (label,            bg,        fg)
+        ("DLC Missing",  "#2a3f5f", "#9ca3af"),   # 0 = off
+        ("DLC Missing",  "#f97316", "#0a0a14"),   # 1 = Missing active
+        ("DLC Partial",  "#a78bfa", "#0a0a14"),   # 2 = Partial active
+    ]
+
+    def _toggle_update_missing(self):
+        self.show_update_missing = not self.show_update_missing
+        self.btn_update_missing.config(
+            bg="#f97316" if self.show_update_missing else "#2a3f5f",
+            fg="#0a0a14" if self.show_update_missing else "#9ca3af")
         self.refresh_table()
 
-    def _toggle_no_update(self):
-        self.hide_no_update = not self.hide_no_update
-        self.btn_no_update.config(
-            bg="#f97316" if self.hide_no_update else "#2a3f5f",
-            fg="#0a0a14" if self.hide_no_update else "#9ca3af")
+    def _cycle_dlc_filter(self):
+        self.dlc_filter_state = (self.dlc_filter_state + 1) % 3
+        label, bg, fg = self._DLC_STATES[self.dlc_filter_state]
+        self.btn_dlc_filter.config(text=label, bg=bg, fg=fg)
         self.refresh_table()
 
     # ------------------------------------------------------------------
@@ -157,6 +170,49 @@ class BaseGamesScreen(BaseScreen):
         improper_name  = 0
         unknown_tid    = 0
 
+        # ── Pre-scan updates & DLC folders to detect local possession ──────
+        cfg = configparser.ConfigParser()
+        if os.path.exists(CONFIG_FILE):
+            cfg.read(CONFIG_FILE)
+        updates_folder = cfg.get("Folders", "folder_updates", fallback="")
+        dlc_folder     = cfg.get("Folders", "folder_dlc",     fallback="")
+
+        _tid_re = re.compile(r'(?<![0-9A-Fa-f])([01][0-9A-Fa-f]{15})(?![0-9A-Fa-f])')
+
+        local_update_base_tids: set = set()
+        upd_folder_ok = bool(updates_folder and os.path.isdir(updates_folder))
+        if upd_folder_ok:
+            for ufname in os.listdir(updates_folder):
+                if not ufname.lower().endswith(('.nsp', '.xci')):
+                    continue
+                m = _tid_re.search(ufname)
+                if m:
+                    ut = m.group(1).lower()
+                    if ut.endswith('800'):
+                        local_update_base_tids.add(ut[:13] + "000")
+
+        # Pre-compute DB DLC counts from norm_c (same logic as DLC screen)
+        db_dlc_counts: dict = defaultdict(int)      # base_tid → DB count
+        for tid_key, cnmt_info in (self.norm_c or {}).items():
+            if isinstance(cnmt_info, dict) and cnmt_info.get("type") == "AddOnContent":
+                parent = cnmt_info.get("parent", "")
+                if parent:
+                    db_dlc_counts[parent] += 1
+
+        local_dlc_counts: dict = defaultdict(int)   # base_tid → local count
+        dlc_folder_ok = bool(dlc_folder and os.path.isdir(dlc_folder))
+        if dlc_folder_ok:
+            for dfname in os.listdir(dlc_folder):
+                if not dfname.lower().endswith(('.nsp', '.xci')):
+                    continue
+                m = _tid_re.search(dfname)
+                if m:
+                    dt = m.group(1).lower()
+                    if dt[-3:] not in ('000', '800'):
+                        cnmt  = (self.norm_c or {}).get(dt, {})
+                        par   = cnmt.get("parent") if cnmt else None
+                        local_dlc_counts[par or (dt[:13] + "000")] += 1
+        # ───────────────────────────────────────────────────────────────────
 
         for fname in os.listdir(folder):
             fpath = os.path.join(folder, fname)
@@ -175,6 +231,7 @@ class BaseGamesScreen(BaseScreen):
                     "filetype": os.path.splitext(fname)[1].lstrip(".").upper(),
                     "tid": "—", "version": "—",
                     "release_date": "—", "has_update": "—", "has_dlc": "—",
+                    "has_update_db": False, "has_dlc_db": False,
                     "rgn": "—", "_quality": "missing_tid",
                 })
                 continue
@@ -213,7 +270,7 @@ class BaseGamesScreen(BaseScreen):
             if len(release_date) == 8 and release_date.isdigit():
                 release_date = f"{release_date[:4]}-{release_date[4:6]}-{release_date[6:]}"
 
-            # Does an update exist?
+            # Does an update exist in DB?
             update_tid = base_tid[:-3] + "800"
             v_list = norm_v.get(update_tid) or norm_v.get(base_tid)
             has_update_flag = False
@@ -222,28 +279,52 @@ class BaseGamesScreen(BaseScreen):
                        if str(v).isdigit()]
                 has_update_flag = bool(ints)
 
-            update_str = "✓ Released" if has_update_flag else "—"
+            # DLC counts (DB vs local)
+            db_dlc_n     = db_dlc_counts[base_tid]
+            local_dlc_n  = local_dlc_counts[base_tid]
+            has_dlc_flag = db_dlc_n > 0
 
-            # DLC?
-            has_dlc_flag = False
-            for dlc_tid in norm_t.keys():
-                if dlc_tid.startswith(base_tid[:13]):
-                    has_dlc_flag = True
-                    break
-            dlc_str = "✓ Released" if has_dlc_flag else "—"
+            # Local possession
+            has_update_local = base_tid in local_update_base_tids
+
+            # Two-line column strings
+            if has_update_flag:
+                if upd_folder_ok:
+                    line2_upd = "✓ Acquired" if has_update_local else "— Missing"
+                else:
+                    line2_upd = "? Set folder"
+                update_str = f"✓ Released\n{line2_upd}"
+            else:
+                update_str = "—"
+
+            if has_dlc_flag:
+                if dlc_folder_ok:
+                    if local_dlc_n >= db_dlc_n:
+                        line2_dlc = "✓ Acquired"
+                    elif local_dlc_n > 0:
+                        line2_dlc = "⚠ Partial"
+                    else:
+                        line2_dlc = "— Missing"
+                else:
+                    line2_dlc = "? Set folder"
+                dlc_str = f"✓ Released\n{line2_dlc}"
+            else:
+                dlc_str = "—"
 
             self.all_data.append({
-                "filename":     fname,
-                "filepath":     fpath,
-                "filetype":     os.path.splitext(fname)[1].lstrip(".").upper(),
-                "tid":          tid.upper(),
-                "version":      version,
-                "release_date": release_date,
-                "has_update":   update_str,
-                "has_dlc":      dlc_str,
-                "rgn":          REGION_FLAGS.get(region, region),
-                "_quality":     "bad_name" if is_bad_name else (
-                                "unknown_tid" if not db_entry else "ok"),
+                "filename":      fname,
+                "filepath":      fpath,
+                "filetype":      os.path.splitext(fname)[1].lstrip(".").upper(),
+                "tid":           tid.upper(),
+                "version":       version,
+                "release_date":  release_date,
+                "has_update":    update_str,
+                "has_dlc":       dlc_str,
+                "has_update_db": has_update_flag,
+                "has_dlc_db":    has_dlc_flag,
+                "rgn":           REGION_FLAGS.get(region, region),
+                "_quality":      "bad_name" if is_bad_name else (
+                                 "unknown_tid" if not db_entry else "ok"),
             })
             if not is_bad_name and not db_entry:
                 unknown_tid += 1
@@ -271,9 +352,13 @@ class BaseGamesScreen(BaseScreen):
                 continue
 
             # Filter by toggle
-            if self.hide_has_update and row["has_update"] == "—":
+            upd_val = row.get("has_update", "")
+            dlc_val = row.get("has_dlc",    "")
+            if self.show_update_missing and "Missing" not in upd_val:
                 continue
-            if self.hide_no_update and "Released" in row["has_update"]:
+            if self.dlc_filter_state == 1 and "Missing" not in dlc_val:
+                continue
+            if self.dlc_filter_state == 2 and "Partial" not in dlc_val:
                 continue
 
             # Build values — format version display

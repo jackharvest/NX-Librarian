@@ -81,16 +81,41 @@ class ComicTooltip:
         self._last_pos    = (-9999, -9999)
         self._idle_since  = time.time()
         self._poll_id     = None
-        self._app_focused = True
+        self._app_focused = True   # fallback for non-Windows
 
-        try:
-            tl = widget.winfo_toplevel()
-            tl.bind("<FocusIn>",  lambda e: setattr(self, "_app_focused", True),  add="+")
-            tl.bind("<FocusOut>", lambda e: setattr(self, "_app_focused", False), add="+")
-        except Exception:
-            pass
+        # On Linux/macOS: FocusIn/FocusOut on the WM toplevel is reliable.
+        # On Windows we use GetForegroundWindow() in _app_has_focus() instead.
+        if sys.platform != "win32":
+            try:
+                tl = widget.winfo_toplevel()
+                tl.bind("<FocusIn>",  lambda e: setattr(self, "_app_focused", True),  add="+")
+                tl.bind("<FocusOut>", lambda e: setattr(self, "_app_focused", False), add="+")
+            except Exception:
+                pass
 
         self._start_polling()
+
+    # ── Focus check ───────────────────────────────────────────────────────────
+
+    def _app_has_focus(self) -> bool:
+        """Return True only if our app window is the OS foreground window.
+
+        On Windows, tkinter's FocusOut is unreliable for app-level switching,
+        so we ask Win32 directly.  On other platforms the event-tracked flag
+        is accurate enough.
+        """
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                fg   = ctypes.windll.user32.GetForegroundWindow()
+                tl   = self._w.winfo_toplevel()
+                hwnd = tl.winfo_id()
+                # Tk gives us the client HWND; the visible frame is its parent
+                parent = ctypes.windll.user32.GetParent(hwnd)
+                return fg in (hwnd, parent)
+            except Exception:
+                pass
+        return self._app_focused
 
     # ── Polling ───────────────────────────────────────────────────────────────
 
@@ -120,7 +145,7 @@ class ComicTooltip:
                 self._poll_id = self._w.after(POLL_MS, self._poll)
                 return
 
-            if not self._app_focused:
+            if not self._app_has_focus():
                 self._hide()
                 self._last_pos   = (-9999, -9999)
                 self._idle_since = time.time()

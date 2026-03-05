@@ -72,7 +72,7 @@ def main():
         from prescan import scan_base, scan_updates, scan_dlc
 
         scan_fns = {
-            "base":    lambda f: scan_base(f, _norm_v, _norm_t),
+            "base":    lambda f: scan_base(f, _norm_v, _norm_t, _norm_c),
             "updates": lambda f: scan_updates(f, _norm_v, _norm_t),
             "dlc":     lambda f: scan_dlc(f, _norm_t, _norm_c),
         }

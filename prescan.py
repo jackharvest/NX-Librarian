@@ -8,9 +8,10 @@ UI dependencies — no tkinter, no messagebox, no label updates.  Returns
 
 import os
 import re
+import configparser
 from collections import defaultdict
 
-from constants import REGION_FLAGS, is_clean_filename, classify_title_id
+from constants import REGION_FLAGS, is_clean_filename, classify_title_id, CONFIG_FILE
 from debug_region import get_region_from_votes
 
 _id_pat  = re.compile(r'(?<![0-9A-Fa-f])([01][0-9A-Fa-f]{15})(?![0-9A-Fa-f])')
@@ -21,7 +22,7 @@ _ver_pat = re.compile(r'\[v(\d+)\]|\[(\d{5,15})\]|[vV](\d+)(?!\.\d)')
 # Base Games
 # ---------------------------------------------------------------------------
 
-def scan_base(folder: str, norm_v: dict, norm_t: dict):
+def scan_base(folder: str, norm_v: dict, norm_t: dict, norm_c: dict = None):
     """Return (all_data, missing_tid, improper_name, unknown_tid) for base games."""
     all_data      = []
     missing_tid   = 0
@@ -32,6 +33,48 @@ def scan_base(folder: str, norm_v: dict, norm_t: dict):
         entries = os.listdir(folder)
     except OSError:
         return all_data, missing_tid, improper_name, unknown_tid
+
+    # ── Read config for sibling folder paths ────────────────────────────
+    cfg = configparser.ConfigParser()
+    if os.path.exists(CONFIG_FILE):
+        cfg.read(CONFIG_FILE)
+    updates_folder = cfg.get("Folders", "folder_updates", fallback="")
+    dlc_folder     = cfg.get("Folders", "folder_dlc",     fallback="")
+
+    local_update_base_tids: set = set()
+    upd_folder_ok = bool(updates_folder and os.path.isdir(updates_folder))
+    if upd_folder_ok:
+        for ufname in os.listdir(updates_folder):
+            if not ufname.lower().endswith(('.nsp', '.xci')):
+                continue
+            m = _id_pat.search(ufname)
+            if m:
+                ut = m.group(1).lower()
+                if ut.endswith('800'):
+                    local_update_base_tids.add(ut[:13] + "000")
+
+    # Pre-compute DB DLC counts from norm_c (same logic as scan_dlc)
+    db_dlc_counts: dict = defaultdict(int)      # base_tid → DB count
+    for tid_key, cnmt_info in (norm_c or {}).items():
+        if isinstance(cnmt_info, dict) and cnmt_info.get("type") == "AddOnContent":
+            parent = cnmt_info.get("parent", "")
+            if parent:
+                db_dlc_counts[parent] += 1
+
+    local_dlc_counts: dict = defaultdict(int)   # base_tid → local count
+    dlc_folder_ok = bool(dlc_folder and os.path.isdir(dlc_folder))
+    if dlc_folder_ok:
+        for dfname in os.listdir(dlc_folder):
+            if not dfname.lower().endswith(('.nsp', '.xci')):
+                continue
+            m = _id_pat.search(dfname)
+            if m:
+                dt = m.group(1).lower()
+                if dt[-3:] not in ('000', '800'):
+                    cnmt  = (norm_c or {}).get(dt, {})
+                    par   = cnmt.get("parent") if cnmt else None
+                    local_dlc_counts[par or (dt[:13] + "000")] += 1
+    # ────────────────────────────────────────────────────────────────────
 
     for fname in entries:
         fpath = os.path.join(folder, fname)
@@ -48,6 +91,7 @@ def scan_base(folder: str, norm_v: dict, norm_t: dict):
                 "filetype": os.path.splitext(fname)[1].lstrip(".").upper(),
                 "tid": "—", "version": "—",
                 "release_date": "—", "has_update": "—", "has_dlc": "—",
+                "has_update_db": False, "has_dlc_db": False,
                 "rgn": "—", "_quality": "missing_tid",
             })
             continue
@@ -84,23 +128,51 @@ def scan_base(folder: str, norm_v: dict, norm_t: dict):
                     if str(v).isdigit()]
             has_update_flag = bool(ints)
 
-        has_dlc_flag = any(k.startswith(base_tid[:13]) for k in norm_t)
-        quality = "bad_name" if is_bad_name else ("unknown_tid" if not db_entry else "ok")
+        db_dlc_n     = db_dlc_counts[base_tid]
+        local_dlc_n  = local_dlc_counts[base_tid]
+        has_dlc_flag = db_dlc_n > 0
 
+        # Local possession — two-line column strings
+        if has_update_flag:
+            if upd_folder_ok:
+                line2_upd = "✓ Acquired" if base_tid in local_update_base_tids else "— Missing"
+            else:
+                line2_upd = "? Set folder"
+            update_str = f"✓ Released\n{line2_upd}"
+        else:
+            update_str = "—"
+
+        if has_dlc_flag:
+            if dlc_folder_ok:
+                if local_dlc_n >= db_dlc_n:
+                    line2_dlc = "✓ Acquired"
+                elif local_dlc_n > 0:
+                    line2_dlc = "⚠ Partial"
+                else:
+                    line2_dlc = "— Missing"
+            else:
+                line2_dlc = "? Set folder"
+            dlc_str = f"✓ Released\n{line2_dlc}"
+        else:
+            dlc_str = "—"
+
+        quality = "bad_name" if is_bad_name else ("unknown_tid" if not db_entry else "ok")
         if not is_bad_name and not db_entry:
             unknown_tid += 1
 
         all_data.append({
-            "filename":     fname,
-            "filepath":     fpath,
-            "filetype":     os.path.splitext(fname)[1].lstrip(".").upper(),
-            "tid":          tid.upper(),
-            "version":      version,
-            "release_date": release_date,
-            "has_update":   "✓ Released" if has_update_flag else "—",
-            "has_dlc":      "✓ Released" if has_dlc_flag else "—",
-            "rgn":          REGION_FLAGS.get(region, region),
-            "_quality":     quality,
+            "filename":      fname,
+            "filepath":      fpath,
+            "filetype":      os.path.splitext(fname)[1].lstrip(".").upper(),
+            "tid":           tid.upper(),
+            "version":       version,
+            "release_date":  release_date,
+            "has_update":    update_str,
+            "has_dlc":       dlc_str,
+            "has_update_db": has_update_flag,
+            "has_dlc_db":    has_dlc_flag,
+            "rgn":           REGION_FLAGS.get(region, region),
+            "_quality":      quality,
         })
 
     all_data.sort(key=lambda x: x["filename"].lower())
