@@ -32,12 +32,15 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller main.spec
 
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
       - name: Build NSIS installer
         run: |
-          choco install nsis --no-progress -y
           cd installer
-          makensis nxlibrarian.nsi
+          & "C:\Program Files (x86)\NSIS\makensis.exe" nxlibrarian.nsi
           mv NX-Librarian-Setup.exe ../dist/
+        shell: pwsh
 
       - name: Create source zip
         run: |
