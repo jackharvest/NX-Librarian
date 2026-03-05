@@ -18,7 +18,7 @@ import sys
 import ctypes
 import ctypes.util
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+_HERE = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from PIL import Image, ImageTk
@@ -370,11 +370,10 @@ class SplashScreen:
             self.root.after(50, self._finish)
 
     def _finish(self):
-        """Close splash and complete."""
+        """Exit the splash mainloop; cleanup and on_complete run after mainloop() returns."""
         if self._shaper:
             self._shaper.cleanup()
-        self.root.destroy()
-        self._on_complete()
+        self.root.quit()
 
     # ------------------------------------------------------------------
     # Public API
@@ -399,3 +398,5 @@ class SplashScreen:
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
         self.root.mainloop()
+        self.root.destroy()
+        self._on_complete()

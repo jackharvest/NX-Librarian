@@ -216,7 +216,12 @@ class BaseScreen(tk.Frame):
                  font=(UI_FONT, 13 + _F, "bold"),
                  fg=THEME["text_primary"], bg=THEME["bg_secondary"]).pack(side="left")
 
-        # ── Right: SCAN → BROWSE → path entry (fills center)
+        # ── Right: SCAN | BROWSE | UNDO | path entry (fills center)
+        # Each section separated by a uniform 1px divider for clean visual rhythm.
+        def _nav_div():
+            tk.Frame(inner, bg=THEME["border_subtle"], width=1).pack(
+                side="right", fill="y", pady=8, padx=8)
+
         scan_btn = self._create_button(inner, "⟳  SCAN", self.scan, primary=True)
         scan_btn.pack(side="right")
         ComicTooltip(scan_btn,
@@ -224,20 +229,26 @@ class BaseScreen(tk.Frame):
                      "Results appear in the table. Use Ctrl+S as a shortcut.",
                      accent_color=self.ACCENT_COLOR)
 
+        _nav_div()
+
         browse_btn = self._create_button(inner, "BROWSE", self._browse)
-        browse_btn.pack(side="right", padx=(0, 10))
+        browse_btn.pack(side="right")
         ComicTooltip(browse_btn,
                      "Open a folder picker to choose your game library folder. "
                      "You can also type or paste a path directly into the field.",
                      accent_color=self.ACCENT_COLOR)
 
+        _nav_div()
+
         self._undo_btn = self._create_button(inner, "↩ UNDO", self._undo_rename)
-        self._undo_btn.pack(side="right", padx=(0, 6))
+        self._undo_btn.pack(side="right")
         self._refresh_undo_btn()
         ComicTooltip(self._undo_btn,
                      "Undo the last batch of renames, restoring all files to their "
                      "previous filenames. Only the most recent rename batch can be undone.",
                      accent_color=self.ACCENT_COLOR)
+
+        _nav_div()
 
         # Path entry — fills remaining space, accent border on focus
         self.path_entry = tk.Entry(inner, textvariable=self.target_folder,
@@ -248,7 +259,7 @@ class BaseScreen(tk.Frame):
                               highlightthickness=1,
                               highlightbackground=THEME["border_subtle"],
                               highlightcolor=self.ACCENT_COLOR)
-        self.path_entry.pack(side="left", fill="x", expand=True, padx=(24, 0), ipady=6)
+        self.path_entry.pack(side="left", fill="x", expand=True, ipady=6)
         ComicTooltip(self.path_entry,
                      "Path to your game folder. Type or paste a path here, or use "
                      "the BROWSE button. The path is saved after each successful scan.",
@@ -418,46 +429,56 @@ class BaseScreen(tk.Frame):
         table_header.pack(fill="x")
 
         header_inner = tk.Frame(table_header, bg=THEME["bg_secondary"])
-        header_inner.pack(fill="x", padx=16, pady=10)
+        header_inner.pack(fill="x", padx=16, pady=14)
 
         # ── RIGHT: stats counter + quality filter buttons ───────────────
         right_frame = tk.Frame(header_inner, bg=THEME["bg_secondary"])
         right_frame.pack(side="right")
 
+        def _toolbar_div():
+            tk.Frame(right_frame, bg=THEME["border_subtle"], width=1).pack(
+                side="left", fill="y", pady=8, padx=8)
+
         self.stats_lbl = tk.Label(right_frame, text="Ready",
                                   font=(UI_FONT, 9 + _F, "bold"),
                                   fg=THEME["text_secondary"], bg=THEME["bg_secondary"])
-        self.stats_lbl.pack(side="left", padx=(0, 16))
+        self.stats_lbl.pack(side="left")
+
+        _toolbar_div()
 
         self.btn_missing_tid = tk.Label(
             right_frame, text="Missing TID: 0",
-            font=(UI_FONT, 8 + _F, "bold"),
+            font=(UI_FONT, 9 + _F, "bold"),
             fg=THEME["text_muted"], bg=THEME["border_light"],
-            cursor=HAND_CURSOR, padx=10, pady=3)
+            cursor=HAND_CURSOR, padx=10, pady=6)
         self.btn_missing_tid.bind("<Button-1>", lambda e: self._toggle_missing_tid())
-        self.btn_missing_tid.pack(side="left", padx=(0, 6))
+        self.btn_missing_tid.pack(side="left")
         ComicTooltip(self.btn_missing_tid,
                      "Files where no Title ID was found in the filename at all. "
                      "Click to toggle filtering these out of the table.",
                      accent_color=self.ACCENT_COLOR)
 
+        _toolbar_div()
+
         self.btn_bad_names = tk.Label(
             right_frame, text="Bad Names: 0",
-            font=(UI_FONT, 8 + _F, "bold"),
+            font=(UI_FONT, 9 + _F, "bold"),
             fg=THEME["text_muted"], bg=THEME["border_light"],
-            cursor=HAND_CURSOR, padx=10, pady=3)
+            cursor=HAND_CURSOR, padx=10, pady=6)
         self.btn_bad_names.bind("<Button-1>", lambda e: self._toggle_bad_names())
-        self.btn_bad_names.pack(side="left", padx=(0, 6))
+        self.btn_bad_names.pack(side="left")
         ComicTooltip(self.btn_bad_names,
                      "Files with a non-standard filename format. These can usually "
                      "be fixed automatically using the rename tool. Click to filter.",
                      accent_color=self.ACCENT_COLOR)
 
+        _toolbar_div()
+
         self.btn_unknown_tid = tk.Label(
             right_frame, text="Unknown TID: 0",
-            font=(UI_FONT, 8 + _F, "bold"),
+            font=(UI_FONT, 9 + _F, "bold"),
             fg=THEME["text_muted"], bg=THEME["border_light"],
-            cursor=HAND_CURSOR, padx=10, pady=3)
+            cursor=HAND_CURSOR, padx=10, pady=6)
         self.btn_unknown_tid.bind("<Button-1>", lambda e: self._toggle_unknown_tid())
         self.btn_unknown_tid.pack(side="left")
         ComicTooltip(self.btn_unknown_tid,
@@ -480,7 +501,7 @@ class BaseScreen(tk.Frame):
                                 highlightthickness=1,
                                 highlightbackground=THEME["border_subtle"],
                                 highlightcolor=self.ACCENT_COLOR)
-        search_entry.pack(side="left", fill="x", expand=True, ipady=5)
+        search_entry.pack(side="left", fill="x", expand=True, ipady=6)
         ComicTooltip(search_entry,
                      "Filter the table by filename. Results update instantly as you type. "
                      "Use Ctrl+F to jump here from anywhere.",
@@ -669,6 +690,14 @@ class BaseScreen(tk.Frame):
                                   fg=THEME["text_muted"], font=(UI_FONT, 8 + _F))
         self.cache_lbl.pack(side="left", padx=(0, 16))
 
+        # Update badge — hidden until an update is found
+        self._update_badge = tk.Label(right_section, text="",
+                                      fg="#f97316", bg=THEME["bg_secondary"],
+                                      font=(UI_FONT, 8 + _F, "bold"),
+                                      cursor=HAND_CURSOR)
+        self._update_badge.pack(side="left", padx=(0, 12))
+        self._update_badge_data = None  # (version, asset_url, notes, html_url)
+
         self.dl_btn = tk.Label(right_section, text="🔄 SYNC DATABASE",
                                fg=THEME["accent_primary"],
                                bg=THEME["bg_secondary"], font=(UI_FONT, 8 + _F, "bold"),
@@ -691,6 +720,29 @@ class BaseScreen(tk.Frame):
         }
         color = colors.get(status_type, "#60a5fa")
         self.status_lbl.config(text=message, fg=color)
+
+    def show_update_badge(self, version, asset_url, notes, html_url):
+        """Show the update badge in the status bar."""
+        self._update_badge_data = (version, asset_url, notes, html_url)
+        self._update_badge.config(text=f"⬆ Update v{version}")
+        self._update_badge.unbind("<Button-1>")
+        self._update_badge.bind("<Button-1>",
+                                lambda e: self._open_update_dialog())
+        ComicTooltip(self._update_badge,
+                     f"NX-Librarian v{version} is available! Click to download.",
+                     accent_color=self.ACCENT_COLOR)
+
+    def hide_update_badge(self):
+        """Hide the update badge."""
+        self._update_badge.config(text="")
+        self._update_badge_data = None
+
+    def _open_update_dialog(self):
+        if not self._update_badge_data:
+            return
+        from ui.update_dialog import UpdateDialog
+        version, asset_url, notes, html_url = self._update_badge_data
+        UpdateDialog(self, version, asset_url, notes, html_url)
 
     # ------------------------------------------------------------------
     # Cross-screen navigation

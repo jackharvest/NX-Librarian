@@ -11,10 +11,14 @@ Professional features:
 """
 
 import os
+import sys
+import shutil
+import threading
 import tkinter as tk
+from tkinter import filedialog, messagebox
 
-from constants import UI_FONT, FONT_BOOST, HAND_CURSOR
-_HERE = os.path.dirname(os.path.abspath(__file__))
+from constants import UI_FONT, FONT_BOOST, HAND_CURSOR, CONFIG_FILE
+_HERE = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 _F = FONT_BOOST
 
 try:
@@ -62,6 +66,7 @@ class NXLibrarianApp:
         self._current_mode = None
         self._mode_screens  = {}
         self._nav_history   = []   # stack of (restore_callable) for back navigation
+        self._pending_update = None  # (version, asset_url, notes, html_url)
 
         # Keyboard shortcuts
         self._setup_shortcuts()
@@ -72,8 +77,17 @@ class NXLibrarianApp:
         from ui import icon_cache as _ic
         _ic.load_enabled()
 
+        # Load update prefs
+        import updater as _upd
+        self._auto_update, self._beta_channel, _ = _upd.load_update_prefs()
+        self._pending_update = None  # (version, asset_url, notes, html_url)
+
         # Match title bar chrome to the OS dark/light mode setting
         self._apply_os_title_bar_theme()
+
+        # Background update check on startup
+        if self._auto_update:
+            threading.Thread(target=self._background_update_check, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Banner
@@ -120,6 +134,8 @@ class NXLibrarianApp:
         menu.add_separator()
         menu.add_command(label="  ⛶   Fullscreen",
                          command=self._toggle_fullscreen, accelerator="F11")
+        menu.add_command(label="  ⤢   Reset Size",
+                         command=self._reset_window_size)
         menu.add_separator()
         menu.add_command(label="  ⌨   Keyboard Shortcuts",
                          command=self._show_shortcuts)
@@ -128,6 +144,19 @@ class NXLibrarianApp:
         from ui import icon_cache as _ic
         art_label = "  🖼   Art Mode  ✓" if _ic.is_enabled() else "  🖼   Art Mode"
         menu.add_command(label=art_label, command=self._toggle_art_mode)
+        menu.add_separator()
+        auto_lbl = "  🔔   Auto-Update  ✓" if self._auto_update else "  🔔   Auto-Update"
+        menu.add_command(label=auto_lbl, command=self._toggle_auto_update)
+        beta_lbl = "  🔬   Beta Channel  ✓" if self._beta_channel else "  🔬   Beta Channel"
+        menu.add_command(label=beta_lbl, command=self._toggle_beta_channel)
+        menu.add_command(label="  ↑    Check for Updates",
+                         command=self._manual_check_for_updates)
+        menu.add_separator()
+        menu.add_command(label="  📤   Export Settings",
+                         command=self._export_settings)
+        menu.add_command(label="  📥   Import Settings",
+                         command=self._import_settings)
+        menu.add_separator()
         menu.add_command(label="  ℹ   About",
                          command=self._show_about)
         menu.add_command(label="  ★   Credits",
@@ -148,6 +177,16 @@ class NXLibrarianApp:
         """Toggle fullscreen mode."""
         state = self.root.attributes('-fullscreen')
         self.root.attributes('-fullscreen', not state)
+
+    def _reset_window_size(self):
+        """Restore default window size and re-centre on screen."""
+        self.root.attributes('-fullscreen', False)
+        w, h = 1100, 880
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x  = (sw - w) // 2
+        y  = (sh - h) // 2
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def _show_about(self):
         """Show about dialog."""
@@ -175,6 +214,94 @@ class NXLibrarianApp:
         _ic.set_enabled(not _ic.is_enabled())
         if hasattr(self._current_frame, "_on_art_mode_changed"):
             self._current_frame._on_art_mode_changed()
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def _toggle_auto_update(self):
+        import updater as _upd
+        self._auto_update = not self._auto_update
+        _upd.save_update_prefs(auto_update=self._auto_update)
+
+    def _toggle_beta_channel(self):
+        import updater as _upd
+        self._beta_channel = not self._beta_channel
+        _upd.save_update_prefs(beta_channel=self._beta_channel)
+
+    def _manual_check_for_updates(self):
+        """Check for updates in a background thread; show result on main thread."""
+        def _worker():
+            import updater as _upd
+            try:
+                result = _upd.check_for_update(
+                    include_prerelease=self._beta_channel)
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: messagebox.showerror(
+                    "Update Check Failed",
+                    f"Could not reach the update server:\n{e}"))
+                return
+            if result:
+                tag, asset_url, notes, html_url = result
+                self.root.after(0, lambda: self._on_update_found(
+                    tag, asset_url, notes, html_url))
+            else:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Up to Date", "You're already running the latest version."))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _background_update_check(self):
+        """Background startup update check — never blocks main thread."""
+        import updater as _upd
+        try:
+            result = _upd.check_for_update(
+                include_prerelease=self._beta_channel)
+        except Exception:
+            return
+        if result:
+            tag, asset_url, notes, html_url = result
+            self.root.after(0, lambda: self._on_update_found(
+                tag, asset_url, notes, html_url))
+
+    def _on_update_found(self, tag, asset_url, notes, html_url):
+        """Called on the main thread when an update is detected."""
+        self._pending_update = (tag, asset_url, notes, html_url)
+        if hasattr(self._current_frame, "show_update_badge"):
+            self._current_frame.show_update_badge(tag, asset_url, notes, html_url)
+
+    # ------------------------------------------------------------------
+    # Settings export / import
+    # ------------------------------------------------------------------
+
+    def _export_settings(self):
+        dest = filedialog.asksaveasfilename(
+            title="Export Settings",
+            defaultextension=".ini",
+            filetypes=[("Config file", "*.ini"), ("All files", "*.*")],
+        )
+        if not dest:
+            return
+        try:
+            shutil.copy(CONFIG_FILE, dest)
+            messagebox.showinfo("Export Settings", f"Settings exported to:\n{dest}")
+        except Exception as exc:
+            messagebox.showerror("Export Failed", str(exc))
+
+    def _import_settings(self):
+        src = filedialog.askopenfilename(
+            title="Import Settings",
+            filetypes=[("Config file", "*.ini"), ("All files", "*.*")],
+        )
+        if not src:
+            return
+        try:
+            shutil.copy(src, CONFIG_FILE)
+            messagebox.showinfo(
+                "Import Settings",
+                "Settings imported successfully.\n\nPlease restart NX-Librarian for all changes to take effect.")
+        except Exception as exc:
+            messagebox.showerror("Import Failed", str(exc))
 
     def _show_shortcuts(self):
         """Show keyboard shortcuts dialog."""
@@ -288,6 +415,9 @@ class NXLibrarianApp:
             self._current_frame.pack_forget()
         frame.pack(fill="both", expand=True, in_=self._content_container)
         self._current_frame = frame
+        # Re-apply pending update badge on the new screen
+        if self._pending_update and hasattr(frame, "show_update_badge"):
+            frame.show_update_badge(*self._pending_update)
 
     def _show_mode_select(self):
         self._nav_history.clear()   # mode select is always the root
