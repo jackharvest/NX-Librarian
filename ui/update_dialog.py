@@ -54,7 +54,6 @@ class UpdateDialog(tk.Toplevel):
         self.configure(bg=_BG)
         self.resizable(False, False)
         self.transient(root)
-        self.grab_set()
 
         self._build()
 
@@ -69,6 +68,13 @@ class UpdateDialog(tk.Toplevel):
         x  = rx + (rw - w) // 2
         y  = ry + (rh - h) // 2
         self.geometry(f"+{x}+{y}")
+
+        # Fully render before grabbing — grabbing an unmapped window on
+        # Windows prevents the interior from ever painting (shows as black)
+        self.lift()
+        self.focus_force()
+        self.update()
+        self.grab_set()
 
     # ------------------------------------------------------------------
     # Layout
