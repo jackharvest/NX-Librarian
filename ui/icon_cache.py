@@ -18,13 +18,8 @@ import configparser
 
 from constants import CONFIG_FILE, HAND_CURSOR
 
-# Art mode log — tails to /tmp/nxlib_art.log for debugging
 _LOG = logging.getLogger("icon_cache")
-if not _LOG.handlers:
-    _h = logging.FileHandler("/tmp/nxlib_art.log")
-    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    _LOG.addHandler(_h)
-    _LOG.setLevel(logging.DEBUG)
+_LOG.addHandler(logging.NullHandler())
 
 try:
     from PIL import Image, ImageTk
@@ -37,6 +32,7 @@ except ImportError:
 _DISK_MAX_W      = 800    # px — max width when saving to disk (aspect preserved)
 _DISK_MAX_H      = 500    # px — max height when saving to disk (aspect preserved)
 _MIN_VALID_BYTES = 40_000 # raw CDN bytes; placeholders are ~29 KB, real art is 600 KB+
+_ART_MAX_W       = 730   # px — art never wider than this; slides right as cell grows
 _GRAD_SPAN       = 120   # px — left-edge fade from transparent → full opacity
 _OPACITY_DIM     = 0.72  # base opacity (art fills full filename cell)
 _OPACITY_HOV     = 0.90  # hover opacity
@@ -266,9 +262,15 @@ def _hex_rgb(h: str) -> tuple:
 
 def _render(pil_img: "Image.Image", cell_w: int, cell_h: int,
             row_bg: str, opacity: float, overlay_text: str = "") -> "ImageTk.PhotoImage":
-    """Composite the icon as the full background of the filename cell."""
-    ow = cell_w   # art fills the entire cell width
-    oh = cell_h
+    """Composite the icon right-aligned in the filename cell.
+
+    The art is capped at _ART_MAX_W so it never stretches wider than intended.
+    When cell_w > _ART_MAX_W the art slides to the right and the extra space
+    on the left is filled with the plain row background colour.
+    """
+    oh    = cell_h
+    ow    = min(cell_w, _ART_MAX_W)   # art width — never exceeds max
+    x_off = cell_w - ow               # left offset when cell is wider than max
 
     # Cover-crop: scale icon to fill ow×oh, center-crop any overflow
     src_w, src_h = pil_img.size
@@ -292,10 +294,10 @@ def _render(pil_img: "Image.Image", cell_w: int, cell_h: int,
     r, g, b, _ = icon.split()
     icon = Image.merge("RGBA", (r, g, b, grad))
 
-    # Composite over the row background colour
-    bg     = Image.new("RGB", (ow, oh), _hex_rgb(row_bg))
-    result = bg.copy()
-    result.paste(icon.convert("RGB"), (0, 0), icon)
+    # Composite art over the row background colour
+    art_bg = Image.new("RGB", (ow, oh), _hex_rgb(row_bg))
+    art    = art_bg.copy()
+    art.paste(icon.convert("RGB"), (0, 0), icon)
 
     # Dark gradient band at the bottom so filename text stays legible
     fade_h    = int(oh * 0.55)
@@ -303,14 +305,14 @@ def _render(pil_img: "Image.Image", cell_w: int, cell_h: int,
     ramp_col  = Image.new("L", (1, fade_h))
     ramp_col.putdata(ramp_data)
     mask = ramp_col.resize((ow, fade_h), Image.Resampling.NEAREST)
-    result.paste(Image.new("RGB", (ow, fade_h), (0, 0, 0)), (0, oh - fade_h), mask)
+    art.paste(Image.new("RGB", (ow, fade_h), (0, 0, 0)), (0, oh - fade_h), mask)
 
-    # Draw filename text at bottom-left, above the dark gradient
+    # Draw filename text at bottom-left of the art strip
     if overlay_text:
         try:
             from PIL import ImageDraw
             font  = _load_pil_font(10)
-            draw  = ImageDraw.Draw(result)
+            draw  = ImageDraw.Draw(art)
             try:
                 bbox    = font.getbbox("Ag")
                 text_h  = bbox[3] - bbox[1]
@@ -320,9 +322,16 @@ def _render(pil_img: "Image.Image", cell_w: int, cell_h: int,
                 top_off = 0
             text_x = _CELL_PADDING
             text_y = oh - text_h - _TEXT_BOTTOM_PAD - top_off
-            draw.text((text_x + 1, text_y + 1), overlay_text, fill=(0, 0, 0),     font=font)
+            draw.text((text_x + 1, text_y + 1), overlay_text, fill=(0, 0, 0),      font=font)
             draw.text((text_x,     text_y),     overlay_text, fill=(255, 255, 255), font=font)
         except Exception:
             pass
+
+    # If the cell is wider than _ART_MAX_W, place art right-aligned on a full-width canvas
+    if x_off > 0:
+        result = Image.new("RGB", (cell_w, oh), _hex_rgb(row_bg))
+        result.paste(art, (x_off, 0))
+    else:
+        result = art
 
     return ImageTk.PhotoImage(result)
