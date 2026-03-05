@@ -37,26 +37,17 @@ jobs:
 
       - name: Build NSIS installer
         run: |
+          $tag = "${{ github.ref_name }}"
           cd installer
           & "C:\Program Files (x86)\NSIS\makensis.exe" nxlibrarian.nsi
-          mv NX-Librarian-Setup.exe ../dist/
-        shell: pwsh
-
-      - name: Create source zip
-        run: |
-          $tag = "${{ github.ref_name }}"
-          Compress-Archive -Path . -DestinationPath "dist/NX-Librarian-${tag}-source.zip" `
-            -CompressionLevel Optimal `
-            -Force
+          mv NX-Librarian-Setup.exe "../dist/NX-Librarian-${tag}-Windows-Setup.exe"
         shell: pwsh
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
-          path: |
-            dist/NX-Librarian-Setup.exe
-            dist/NX-Librarian-*-source.zip
+          path: dist/NX-Librarian-*-Windows-Setup.exe
 
   # ── macOS build ──────────────────────────────────────────────────────────────
   build-macos:
@@ -86,15 +77,16 @@ jobs:
 
       - name: Build DMG
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
           bash build_scripts/create_dmg.sh "$VERSION"
+          mv "dist/NX-Librarian-${VERSION}.dmg" "dist/NX-Librarian-${TAG}-macOS.dmg"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
-          path: dist/*.dmg
+          path: dist/NX-Librarian-*-macOS.dmg
 
   # ── Linux build ──────────────────────────────────────────────────────────────
   build-linux:
@@ -125,21 +117,25 @@ jobs:
         run: pyinstaller main.spec
 
       - name: Build AppImage
-        run: bash build_scripts/create_appimage.sh
+        run: |
+          TAG="${{ github.ref_name }}"
+          bash build_scripts/create_appimage.sh
+          mv dist/NX-Librarian-x86_64.AppImage "dist/NX-Librarian-${TAG}-Linux-x86_64.AppImage"
 
       - name: Build .deb
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
           bash build_scripts/create_deb.sh "$VERSION"
+          mv "dist/nxlibrarian_${VERSION}_amd64.deb" "dist/NX-Librarian-${TAG}-Linux-amd64.deb"
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-artifacts
           path: |
-            dist/*.AppImage
-            dist/*.deb
+            dist/NX-Librarian-*-Linux-x86_64.AppImage
+            dist/NX-Librarian-*-Linux-amd64.deb
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
   create-release:
@@ -169,7 +165,6 @@ jobs:
           name: "NX-Librarian ${{ github.ref_name }}"
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
-          files: |
-            artifacts/**/*
+          files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

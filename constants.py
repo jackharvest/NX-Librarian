@@ -17,7 +17,7 @@ FONT_BOOST = 2 if sys.platform == "darwin" else 0
 HAND_CURSOR = "pointinghand" if sys.platform == "darwin" else "hand2"
 
 APP_NAME      = "NX-Librarian"
-APP_VERSION   = "3.0.0-beta.1"
+APP_VERSION   = "3.0.0-beta.2"
 APP_COPYRIGHT = "© 2026 jackharvest / NX-Librarian Contributors"
 GITHUB_REPO   = "jackharvest/NX-Librarian"
 
