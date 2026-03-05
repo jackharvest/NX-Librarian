@@ -15,20 +15,23 @@ This is UTTERLY TRANSFORMED from v2.
 import os
 import re
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
-from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, is_clean_filename
+from constants import KNOWN_REGIONS, REGION_FLAGS, HAND_CURSOR, UI_FONT, FONT_BOOST, is_clean_filename
 from db import cache_age_string
-from ui.base_screen import BaseScreen
+from ui.base_screen import BaseScreen, THEME
+from ui import icon_cache
 from debug_region import log_region_lookup, clear_log, get_region_from_votes
+
+_F = FONT_BOOST
 
 
 _COLUMNS = [
-    ("filename",     "FILENAME",      460, True,  "w"),
+    ("filename",     "FILENAME",      300, True,  "w"),
     ("filetype",     "TYPE",           60, False, "center"),
     ("tid",          "TITLE ID",      155, False, "center"),
-    ("version",      "VERSION",        90, False, "center"),
-    ("release_date", "RELEASE DATE",  120, False, "center"),
+    ("version",      "VERSION",       100, False, "center"),
+    ("release_date", "RELEASE DATE",  135, False, "center"),
     ("has_update",   "UPDATE?",       115, False, "center"),
     ("has_dlc",      "DLC?",          115, False, "center"),
     ("rgn",          "RGN",            65, False, "center"),
@@ -40,11 +43,41 @@ class BaseGamesScreen(BaseScreen):
     MODE_LABEL   = "BASE GAME LIBRARY"
     ACCENT_COLOR = "#ff3b5c"
     COLUMNS      = _COLUMNS
+    TREE_STYLE   = "BaseGames.Treeview"
 
     def __init__(self, *args, **kwargs):
-        self.hide_has_update = False
-        self.hide_no_update  = False
+        self.hide_has_update     = False
+        self.hide_no_update      = False
+        self._art_labels         = []
+        self._art_hover_iid      = None
+        self._art_hover_clear_id = None
         super().__init__(*args, **kwargs)
+        # Apply taller rows immediately if art mode was already on at startup
+        if icon_cache.is_enabled():
+            self.tree.config(style="BaseGames.Art.Treeview")
+        # Rebind tree <Leave> to also clear art hover state
+        self.tree.bind("<Leave>",
+            lambda e: (self.tree.config(cursor=""), self._schedule_art_hover_clear()))
+
+    # ------------------------------------------------------------------
+    # Styles — custom per-screen so row height can differ from other screens
+    # ------------------------------------------------------------------
+
+    def _setup_styles(self):
+        super()._setup_styles()
+        style = ttk.Style()
+        for name, rowh in [("BaseGames.Treeview", 52), ("BaseGames.Art.Treeview", 72)]:
+            style.configure(name,
+                            font=(UI_FONT, 10 + _F),
+                            rowheight=rowh,
+                            borderwidth=0,
+                            background=THEME["bg_secondary"],
+                            foreground=THEME["text_primary"],
+                            fieldbackground=THEME["bg_secondary"],
+                            relief="flat")
+            style.map(name,
+                      background=[("selected", THEME["bg_tertiary"])],
+                      foreground=[("selected", THEME["accent_primary"])])
 
     # ------------------------------------------------------------------
     # Filter buttons — modern chip-style
@@ -283,9 +316,16 @@ class BaseGamesScreen(BaseScreen):
     # ------------------------------------------------------------------
 
     def _place_fix_buttons(self):
-        """Extend base class to also place version-warn cell overlays."""
+        """Extend base class to also place version-warn and art overlays."""
         super()._place_fix_buttons()
         self._place_version_warn_overlays()
+        self._place_art_overlays()
+        # Fix buttons are in table_container; lift them above art labels
+        for btn in self._fix_buttons:
+            try:
+                btn.lift()
+            except Exception:
+                pass
 
     def _place_version_warn_overlays(self):
         """Overlay a yellow ⚠ label on the version cell for every v>0 row."""
@@ -328,6 +368,268 @@ class BaseGamesScreen(BaseScreen):
         VersionWarnDialog(self, item, self.norm_t)
 
     # ------------------------------------------------------------------
+    # Art Mode overlays
+    # ------------------------------------------------------------------
+
+    def _clear_art_overlays(self):
+        for entry in self._art_labels:
+            try:
+                entry["label"].destroy()
+            except Exception:
+                pass
+        self._art_labels = []
+        self._art_hover_iid = None
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+            self._art_hover_clear_id = None
+
+    def _on_scroll_tick(self):
+        """Reposition art labels on every smooth-scroll animation frame."""
+        self._place_art_overlays()
+        for btn in self._fix_buttons:
+            try:
+                btn.lift()
+            except Exception:
+                pass
+
+    def _forward_scroll(self, event):
+        """Forward mouse-wheel events from art labels to the smooth scroller."""
+        if event.num == 4:
+            self._push_scroll(-1.0)
+        elif event.num == 5:
+            self._push_scroll(1.0)
+        else:
+            self._push_scroll(-event.delta / 120.0)
+
+    def _place_art_overlays(self):
+        """Maintain art overlay labels for every visible row.
+
+        On scroll, existing labels are repositioned in-place rather than
+        destroyed and recreated.  This eliminates the black-flash blink from
+        the old destroy→recreate cycle.  Only labels for rows that newly
+        scroll into view are created; labels for rows that scroll off-screen
+        are destroyed.
+        """
+        if not icon_cache.is_enabled():
+            return
+
+        fname_idx  = next((i for i, c in enumerate(self.COLUMNS) if c[0] == "filename"), 0)
+        tree_off_x = self.tree.winfo_x()
+        tree_off_y = self.tree.winfo_y()
+
+        # ── build desired state for every currently-visible row ──────────
+        wanted = {}
+        for iid in self.tree.get_children():
+            values = self.tree.item(iid, "values")
+            if not values:
+                continue
+            filename = values[fname_idx]
+            item = next((d for d in self.all_data if d.get("filename") == filename), None)
+            if not item:
+                continue
+            tid = item.get("tid", "").lower()
+            if not tid or tid == "—":
+                continue
+            db_entry   = self.norm_t.get(tid) or self.norm_t.get(tid[:13] + "000") or {}
+            icon_url   = db_entry.get("iconUrl",   "")
+            banner_url = db_entry.get("bannerUrl", "")
+            if not icon_url and not banner_url:
+                continue
+            cell = self.tree.bbox(iid, "filename")
+            if not cell:
+                continue   # scrolled off screen
+            cx, cy, cw, ch = cell
+            tags = self.tree.item(iid, "tags")
+            if "unknown_tid" in tags:
+                row_bg = "#2d1f47"
+            elif "even" in tags:
+                row_bg = "#1a2540"
+            else:
+                row_bg = "#151d33"
+            wanted[iid] = dict(
+                tid=tid, filename=filename,
+                icon_url=icon_url, banner_url=banner_url,
+                row_bg=row_bg,
+                abs_x=tree_off_x + cx, abs_y=tree_off_y + cy, cw=cw, ch=ch,
+            )
+
+        # ── smart update: reuse / move / create / destroy ────────────────
+        existing      = {e["iid"]: e for e in self._art_labels}
+        new_art_labels = []
+
+        for iid, info in wanted.items():
+            if iid in existing:
+                entry = existing.pop(iid)
+                # Row still visible — reposition only, no destroy/recreate
+                entry["label"].place(x=info["abs_x"], y=info["abs_y"],
+                                     width=info["cw"], height=info["ch"])
+                # Re-render photo only if cell dimensions or bg changed
+                if (entry["cell_w"] != info["cw"]
+                        or entry["cell_h"] != info["ch"]
+                        or entry["row_bg"] != info["row_bg"]):
+                    entry["cell_w"] = info["cw"]
+                    entry["cell_h"] = info["ch"]
+                    entry["row_bg"] = info["row_bg"]
+                    photo = icon_cache.get_photo(
+                        info["tid"], info["cw"], info["ch"], info["row_bg"],
+                        hover=False, overlay_text=info["filename"])
+                    if photo:
+                        try:
+                            entry["label"].config(image=photo)
+                            entry["photo"] = photo
+                        except Exception:
+                            pass
+                new_art_labels.append(entry)
+            else:
+                # Newly visible row — create a fresh label
+                photo = icon_cache.get_photo(
+                    info["tid"], info["cw"], info["ch"], info["row_bg"],
+                    hover=False, overlay_text=info["filename"])
+                lbl = tk.Label(self.table_container, bd=0,
+                               highlightthickness=0, bg=info["row_bg"])
+                if photo:
+                    lbl.config(image=photo)
+                entry = dict(
+                    label=lbl, iid=iid, tid=info["tid"],
+                    cell_w=info["cw"], cell_h=info["ch"],
+                    row_bg=info["row_bg"], photo=photo,
+                    overlay_text=info["filename"],
+                )
+                lbl.bind("<Enter>",      lambda e, i=iid: self._set_art_hover(i))
+                lbl.bind("<Leave>",      lambda e: self._schedule_art_hover_clear())
+                lbl.bind("<Button-1>",   lambda e, i=iid: self.tree.selection_set(i))
+                lbl.bind("<MouseWheel>", self._forward_scroll)
+                lbl.bind("<Button-4>",   self._forward_scroll)
+                lbl.bind("<Button-5>",   self._forward_scroll)
+                lbl.place(x=info["abs_x"], y=info["abs_y"],
+                          width=info["cw"], height=info["ch"])
+                new_art_labels.append(entry)
+                icon_cache.request_icon(info["tid"], info["icon_url"], self._on_icon_ready,
+                                        banner_url=info["banner_url"])
+
+        # Destroy labels for rows that are no longer visible
+        for iid, entry in existing.items():
+            if iid == self._art_hover_iid:
+                self._art_hover_iid = None
+            try:
+                entry["label"].destroy()
+            except Exception:
+                pass
+
+        # Lift all art labels above the Treeview in table_container z-order
+        for entry in new_art_labels:
+            entry["label"].lift()
+
+        self._art_labels = new_art_labels
+
+    def _art_hover_entry(self, entry: dict, hover: bool):
+        """Apply dim/bright state to a single art label entry."""
+        photo = icon_cache.get_photo(
+            entry["tid"], entry["cell_w"], entry["cell_h"], entry["row_bg"], hover,
+            overlay_text=entry.get("overlay_text", ""))
+        if photo:
+            try:
+                entry["label"].config(image=photo)
+                entry["photo"] = photo
+            except Exception:
+                pass
+
+    def _set_art_hover(self, new_iid):
+        """Brighten art for new_iid row; dim the previously hovered row."""
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+            self._art_hover_clear_id = None
+        if new_iid == self._art_hover_iid:
+            return
+        # Dim old row
+        if self._art_hover_iid:
+            for en in self._art_labels:
+                if en["iid"] == self._art_hover_iid:
+                    self._art_hover_entry(en, False)
+        # Brighten new row
+        self._art_hover_iid = new_iid
+        for en in self._art_labels:
+            if en["iid"] == new_iid:
+                self._art_hover_entry(en, True)
+
+    def _schedule_art_hover_clear(self):
+        """Debounce art hover-off to prevent flicker on mouse transitions."""
+        if self._art_hover_clear_id:
+            try:
+                self.after_cancel(self._art_hover_clear_id)
+            except Exception:
+                pass
+        self._art_hover_clear_id = self.after(30, self._do_art_hover_clear)
+
+    def _do_art_hover_clear(self):
+        self._art_hover_clear_id = None
+        if self._art_hover_iid:
+            for en in self._art_labels:
+                if en["iid"] == self._art_hover_iid:
+                    self._art_hover_entry(en, False)
+            self._art_hover_iid = None
+
+    def _on_icon_ready(self, tid: str):
+        """Called when an icon download completes (may be on a background thread)."""
+        import logging
+        logging.getLogger("icon_cache").info("_on_icon_ready(%s): scheduling UI update, art_labels=%d", tid, len(self._art_labels))
+        try:
+            self.after(0, lambda t=tid: self._update_art_for_tid(t))
+        except Exception as exc:
+            import logging
+            logging.getLogger("icon_cache").error("_on_icon_ready(%s): after() failed — %s", tid, exc)
+
+    def _update_art_for_tid(self, tid: str):
+        """Refresh the art label for *tid* once its PIL image is available."""
+        import logging
+        log = logging.getLogger("icon_cache")
+        matches = [e for e in self._art_labels if e["tid"] == tid]
+        log.info("_update_art_for_tid(%s): %d matching entries in art_labels", tid, len(matches))
+        for entry in matches:
+            photo = icon_cache.get_photo(
+                entry["tid"], entry["cell_w"], entry["cell_h"],
+                entry["row_bg"], hover=False,
+                overlay_text=entry.get("overlay_text", ""))
+            log.info("_update_art_for_tid(%s): get_photo returned %s", tid, "photo" if photo else "None")
+            if photo:
+                try:
+                    entry["label"].config(image=photo)
+                    entry["photo"] = photo
+                    self._update_status("🖼 Art loaded", "success")
+                except Exception as exc:
+                    log.error("_update_art_for_tid(%s): label.config failed — %s", tid, exc)
+        if not matches:
+            # Labels may have been cleared (scroll/resize) — re-place now
+            log.info("_update_art_for_tid(%s): no labels found, triggering re-place", tid)
+            self._schedule_fix_buttons()
+
+    def _force_art_download(self, tid: str, icon_url: str, banner_url: str = ""):
+        """Clear cache for *tid* and trigger a fresh download."""
+        icon_cache.clear_icon(tid)
+        icon_cache.request_icon(tid, icon_url, self._on_icon_ready, banner_url=banner_url)
+        self._update_status("🖼 Downloading art…", "info")
+
+    def _on_art_mode_changed(self):
+        """Called by the app when the user toggles Art Mode in the menu."""
+        if icon_cache.is_enabled():
+            self.tree.config(style="BaseGames.Art.Treeview")
+        else:
+            self._clear_art_overlays()
+            self.tree.config(style="BaseGames.Treeview")
+        icon_cache.invalidate_photo_cache()   # force re-render with current settings
+        self.refresh_table()
+
+    def _invalidate_art_renders(self):
+        """Drop cached PhotoImages so next placement re-renders with current settings."""
+        icon_cache.invalidate_photo_cache()
+
+    # ------------------------------------------------------------------
     # Cross-screen navigation
     # ------------------------------------------------------------------
 
@@ -344,11 +646,17 @@ class BaseGamesScreen(BaseScreen):
     def _on_tree_motion(self, event):
         col_key = self._nav_col_key(event)
         iid = self.tree.identify_row(event.y)
-        if not iid or col_key not in ("has_update", "has_dlc"):
+        # Nav-column cursor
+        if iid and col_key in ("has_update", "has_dlc"):
+            val = self.tree.set(iid, col_key)
+            self.tree.config(cursor=HAND_CURSOR if val and val != "—" else "")
+        else:
             self.tree.config(cursor="")
-            return
-        val = self.tree.set(iid, col_key)
-        self.tree.config(cursor=HAND_CURSOR if val and val != "—" else "")
+        # Art hover — track whichever row the mouse is over
+        if iid:
+            self._set_art_hover(iid)
+        else:
+            self._schedule_art_hover_clear()
 
     def _on_row_click(self, event):
         """Single-click UPDATE? / DLC? cells → navigate."""
@@ -387,3 +695,12 @@ class BaseGamesScreen(BaseScreen):
         if has_dlc and has_dlc != "—":
             add_fn(f"🎮 Show DLC for {short}",
                    lambda t=tid: self.navigate_to("dlc", t))
+        # Art download — always offered if the DB has an icon URL for this game
+        db_entry   = self.norm_t.get(tid) or self.norm_t.get(tid[:13] + "000") or {}
+        icon_url   = db_entry.get("iconUrl",   "")
+        banner_url = db_entry.get("bannerUrl", "")
+        if icon_url or banner_url:
+            cached    = tid in icon_cache._pil_cache
+            art_label = "🖼  Re-download Art" if cached else "🖼  Download Art"
+            add_fn(art_label,
+                   lambda t=tid, u=icon_url, b=banner_url: self._force_art_download(t, u, b))

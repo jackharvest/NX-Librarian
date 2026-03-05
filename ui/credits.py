@@ -38,11 +38,11 @@ _SECTIONS = [
                 "role":  "The backbone of NX-Librarian's entire lookup engine.",
                 "desc":  (
                     "Provides game names, title IDs, version histories, DLC parent "
-                    "relationships, and content-type classification (Application / "
-                    "Patch / AddOnContent). NX-Librarian pulls eight JSON feeds from "
-                    "this repository at startup: versions.json, cnmts.json, and six "
-                    "regional catalogues (US · GB · JP · KR · HK · CN). Without this "
-                    "project none of the rename or verify features would be possible."
+                    "relationships, content-type classification, and eShop CDN URLs "
+                    "for game artwork. NX-Librarian pulls eight JSON feeds from this "
+                    "repository at startup: versions.json, cnmts.json, and six regional "
+                    "catalogues (US · GB · JP · KR · HK · CN). Without this project "
+                    "none of the rename, verify, or Art Mode features would be possible."
                 ),
                 "url":   "github.com/blawar/titledb",
             },
@@ -62,9 +62,11 @@ _SECTIONS = [
                 "name":  "Pillow  (PIL Fork)",
                 "role":  "Alex Clark and Contributors",
                 "desc":  (
-                    "Image loading and compositing, logo rendering, splash-screen "
-                    "circle animation, and all tooltip card drawing. Every pixel "
-                    "of custom art in this app goes through Pillow."
+                    "Image loading, compositing, and rendering throughout the app. "
+                    "Powers Art Mode — downloads game banners and icons, composites "
+                    "them with a left-edge fade gradient into the filename column, "
+                    "and handles hover glow and placeholder-size detection. Also used "
+                    "for the logo, splash animation, and all tooltip card drawing."
                 ),
                 "url":   "python-pillow.org  ·  github.com/python-pillow/Pillow",
             },
@@ -72,9 +74,9 @@ _SECTIONS = [
                 "name":  "Requests",
                 "role":  "Kenneth Reitz and Contributors",
                 "desc":  (
-                    "HTTP library used to fetch all title-database JSON files "
-                    "from GitHub. Handles retries, timeouts, and streaming "
-                    "responses during the splash-screen load phase."
+                    "HTTP library used to fetch title-database JSON files from GitHub "
+                    "and to download game artwork from the Nintendo eShop CDN. Handles "
+                    "retries, timeouts, and streaming responses."
                 ),
                 "url":   "requests.readthedocs.io",
             },
@@ -93,6 +95,25 @@ _SECTIONS = [
                     "through Tkinter's Tcl/Tk bridge."
                 ),
                 "url":   "tcl.tk  ·  docs.python.org/library/tkinter",
+            },
+        ],
+    },
+    {
+        "title": "GAME ARTWORK",
+        "color": "#f472b6",
+        "entries": [
+            {
+                "name":  "Nintendo eShop CDN",
+                "role":  "Nintendo Co., Ltd.",
+                "desc":  (
+                    "Game icons and banner images displayed in Art Mode are fetched "
+                    "from Nintendo's official eShop content delivery network. Image "
+                    "URLs are sourced from the titledb project. All artwork remains "
+                    "the property of Nintendo Co., Ltd. and respective game publishers. "
+                    "NX-Librarian is an independent fan project and is not affiliated "
+                    "with or endorsed by Nintendo."
+                ),
+                "url":   "nintendo.com",
             },
         ],
     },
@@ -130,21 +151,21 @@ _SECTIONS = [
                 "name":  "DejaVu Sans",
                 "role":  "The DejaVu Fonts Team",
                 "desc":  (
-                    "Primary font used for tooltip card text rendering on Linux. "
-                    "Loaded at runtime via Pillow's ImageFont."
+                    "Primary font used for tooltip card text and Art Mode filename "
+                    "overlays on Linux. Loaded at runtime via Pillow's ImageFont."
                 ),
                 "url":   "dejavu-fonts.github.io",
             },
             {
                 "name":  "Liberation Sans",
                 "role":  "Red Hat, Inc.  ·  Steve Matteson",
-                "desc":  "First fallback font for tooltip rendering when DejaVu is unavailable.",
+                "desc":  "First fallback font for tooltip and art overlay rendering.",
                 "url":   "github.com/liberationfonts/liberation-fonts",
             },
             {
                 "name":  "FreeSans",
                 "role":  "GNU FreeFont Project",
-                "desc":  "Second fallback font for tooltip rendering.",
+                "desc":  "Second fallback font for tooltip and art overlay rendering.",
                 "url":   "gnu.org/software/freefont",
             },
         ],
@@ -168,8 +189,9 @@ _SECTIONS = [
                 "name":  "Nintendo Switch™  eShop",
                 "role":  "Nintendo Co., Ltd.",
                 "desc":  (
-                    "Card layout, accent-color usage, and hover interaction patterns "
-                    "draw visual cues from the eShop's game-detail pages."
+                    "Card layout, accent-color usage, hover interaction patterns, "
+                    "and the Art Mode banner presentation draw visual cues from "
+                    "the eShop's game-detail pages."
                 ),
                 "url":   "nintendo.com",
             },
@@ -213,15 +235,21 @@ _SECTIONS = [
     },
 ]
 
+# ── Column assignment — interleave sections for visual balance ────────────────
+# Left column indices:  0, 2, 4, 6  (TITLE DATABASE, GUI, LINUX, DESIGN)
+# Right column indices: 1, 3, 5, 7  (PYTHON LIBS, GAME ARTWORK, TYPOGRAPHY, COMMUNITY)
+_LEFT_COLS  = {0, 2, 4, 6}
+_RIGHT_COLS = {1, 3, 5, 7}
+
 
 def show_credits(parent: tk.Misc):
     """Open the Credits & Acknowledgements window."""
     win = tk.Toplevel(parent)
     win.title("Credits & Acknowledgements — NX-Librarian")
     win.configure(bg=_BG)
-    win.resizable(False, False)
+    win.resizable(True, True)
 
-    W, H = 680, 720
+    W, H = 1100, 740
     sw = win.winfo_screenwidth()
     sh = win.winfo_screenheight()
     win.geometry(f"{W}x{H}+{(sw - W)//2}+{(sh - H)//2}")
@@ -282,9 +310,20 @@ def show_credits(parent: tk.Misc):
         canvas.unbind_all("<Button-5>"),
     ) if e.widget is win else None)
 
-    # ── Populate sections ─────────────────────────────────────────────────────
-    for section in _SECTIONS:
-        _add_section(inner, section, W)
+    # ── Two-column grid ───────────────────────────────────────────────────────
+    cols_frame = tk.Frame(inner, bg=_BG)
+    cols_frame.pack(fill="both", expand=True)
+
+    left_col  = tk.Frame(cols_frame, bg=_BG)
+    right_col = tk.Frame(cols_frame, bg=_BG)
+    left_col.pack(side="left", fill="both", expand=True, padx=(0, 4))
+    right_col.pack(side="left", fill="both", expand=True, padx=(4, 0))
+
+    COL_W = W // 2 - 20
+
+    for i, section in enumerate(_SECTIONS):
+        col = left_col if i in _LEFT_COLS else right_col
+        _add_section(col, section, COL_W)
 
     # Bottom breathing room
     tk.Frame(inner, bg=_BG, height=24).pack(fill="x")
@@ -304,7 +343,7 @@ def show_credits(parent: tk.Misc):
     close_btn.bind("<Leave>", lambda e: close_btn.config(bg=_C["header_bg"]))
 
 
-def _add_section(parent, section: dict, win_w: int):
+def _add_section(parent, section: dict, col_w: int):
     """Render one credit section with its entries."""
     color = section["color"]
 
@@ -318,19 +357,21 @@ def _add_section(parent, section: dict, win_w: int):
              padx=14, pady=7).pack(side="left")
 
     for entry in section["entries"]:
-        _add_entry(parent, entry, color)
+        _add_entry(parent, entry, color, col_w)
 
 
-def _add_entry(parent, entry: dict, accent: str):
+def _add_entry(parent, entry: dict, accent: str, col_w: int):
     """Render a single credit card."""
+    wrap = max(col_w - 80, 200)
+
     card = tk.Frame(parent, bg=_C["card_bg"])
-    card.pack(fill="x", padx=20, pady=(6, 0))
+    card.pack(fill="x", padx=12, pady=(6, 0))
 
     # Left accent stripe
     tk.Frame(card, bg=accent, width=2).pack(side="left", fill="y")
 
     content = tk.Frame(card, bg=_C["card_bg"])
-    content.pack(side="left", fill="both", expand=True, padx=14, pady=10)
+    content.pack(side="left", fill="both", expand=True, padx=12, pady=10)
 
     # Name
     tk.Label(content, text=entry["name"],
@@ -345,12 +386,12 @@ def _add_entry(parent, entry: dict, accent: str):
                  font=(UI_FONT, 8 + _F),
                  anchor="w", justify="left").pack(fill="x")
 
-    # Description — wraplength set after layout
+    # Description
     desc_lbl = tk.Label(content, text=entry["desc"],
                         bg=_C["card_bg"], fg=_C["body"],
                         font=(UI_FONT, 9 + _F),
                         anchor="w", justify="left",
-                        wraplength=560)
+                        wraplength=wrap)
     desc_lbl.pack(fill="x", pady=(4, 0))
 
     # URL

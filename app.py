@@ -42,9 +42,9 @@ class NXLibrarianApp:
         self._prescan_data = prescan_data or {}
 
         self.root.title("NX-Librarian — Nintendo Switch Archive Manager & Renamer")
-        self.root.geometry("1350x880")
+        self.root.geometry("1100x880")
         self.root.configure(bg="#0a0a14")
-        self.root.minsize(900, 600)
+        self.root.minsize(800, 600)
 
         # Load logos
         self._logo_full   = self._load_logo(480, 316)   # mode select
@@ -67,6 +67,10 @@ class NXLibrarianApp:
         self._setup_shortcuts()
 
         self._show_mode_select()
+
+        # Load persistent art-mode setting
+        from ui import icon_cache as _ic
+        _ic.load_enabled()
 
         # Match title bar chrome to the OS dark/light mode setting
         self._apply_os_title_bar_theme()
@@ -121,6 +125,9 @@ class NXLibrarianApp:
                          command=self._show_shortcuts)
         menu.add_command(label="  ⚙   Database Mirror",
                          command=self._show_mirror_dialog)
+        from ui import icon_cache as _ic
+        art_label = "  🖼   Art Mode  ✓" if _ic.is_enabled() else "  🖼   Art Mode"
+        menu.add_command(label=art_label, command=self._toggle_art_mode)
         menu.add_command(label="  ℹ   About",
                          command=self._show_about)
         menu.add_command(label="  ★   Credits",
@@ -148,10 +155,12 @@ class NXLibrarianApp:
         from constants import APP_VERSION
         messagebox.showinfo("About NX-Librarian",
             f"NX-Librarian v{APP_VERSION}\n\n"
-            "Premium Nintendo Switch Archive Manager & Renamer\n\n"
-            "Manage, organize, and renew your game collection.\n"
+            "Nintendo Switch Archive Manager & Renamer\n\n"
+            "Manage, organize, and verify your game collection.\n"
             "Support for base games, updates, and DLC.\n\n"
-            "© 2026 • Enhanced with Premium Design")
+            "Art Mode: toggle in-row banner art sourced from\n"
+            "the Nintendo eShop CDN via blawar/titledb.\n\n"
+            "© 2026 jackharvest / NX-Librarian Contributors")
 
     def _show_credits(self):
         from ui.credits import show_credits
@@ -160,6 +169,12 @@ class NXLibrarianApp:
     def _show_mirror_dialog(self):
         from ui.mirror_dialog import show_mirror_dialog
         show_mirror_dialog(self.root)
+
+    def _toggle_art_mode(self):
+        from ui import icon_cache as _ic
+        _ic.set_enabled(not _ic.is_enabled())
+        if hasattr(self._current_frame, "_on_art_mode_changed"):
+            self._current_frame._on_art_mode_changed()
 
     def _show_shortcuts(self):
         """Show keyboard shortcuts dialog."""

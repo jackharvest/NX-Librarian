@@ -54,6 +54,12 @@ THEME = {
 }
 
 
+# Smooth-scroll tuning
+_SCROLL_DECAY   = 0.82   # velocity retained per frame  (higher = more glide)
+_SCROLL_STEP_MS = 16     # animation interval in ms     (~60 fps)
+_SCROLL_ROWS    = 3      # rows of travel per wheel notch (before decay)
+
+
 class BaseScreen(tk.Frame):
     """Abstract scaffold for all mode screens with premium design."""
 
@@ -61,6 +67,7 @@ class BaseScreen(tk.Frame):
     MODE_LABEL     = "LIBRARY MODE"
     ACCENT_COLOR   = THEME["accent_primary"]
     COLUMNS        = []
+    TREE_STYLE     = "Striped.Treeview"
 
     def __init__(self, parent, on_back, logo_img=None, norm_v=None, norm_t=None, norm_c=None, navigate_to=None, **kwargs):
         super().__init__(parent, bg=THEME["bg_primary"], **kwargs)
@@ -84,6 +91,8 @@ class BaseScreen(tk.Frame):
         self._fix_buttons       = []
         self._fix_btn_after_id  = None
         self._rename_history    = []   # stack of batches: [(new_path, old_path), ...]
+        self._scroll_velocity   = 0.0
+        self._scroll_after_id   = None
 
         self._load_folder_config()
         self._setup_styles()
@@ -491,7 +500,7 @@ class BaseScreen(tk.Frame):
         col_ids = [c[0] for c in self.COLUMNS]
         self.tree = ttk.Treeview(self.table_container, columns=col_ids,
                                 show="headings", selectmode="browse",
-                                height=20, style="Striped.Treeview")
+                                height=20, style=self.TREE_STYLE)
         
         self._vsb = ttk.Scrollbar(self.table_container, orient="vertical", command=self.tree.yview,
                                   style="Vertical.TScrollbar")
@@ -524,6 +533,8 @@ class BaseScreen(tk.Frame):
         self.tree.tag_configure("odd",         background="#151d33")
         self.tree.tag_configure("unknown_tid", background="#2d1f47", foreground="#c4b5fd")
         
+        self._setup_smooth_scroll()
+
         # Right-click menu
         self._ctx_menu = tk.Menu(self, tearoff=0, bg=THEME["bg_secondary"],
                                 fg=THEME["text_primary"],
@@ -535,6 +546,56 @@ class BaseScreen(tk.Frame):
         self._ctx_menu.add_command(label="📋 Copy All",  command=self._copy_all)
         self.tree.bind("<Button-3>", self._show_ctx_menu)
     
+    # ------------------------------------------------------------------
+    # Smooth scrolling
+    # ------------------------------------------------------------------
+
+    def _setup_smooth_scroll(self):
+        """Bind mouse-wheel events on the Treeview to the smooth scroller."""
+        self.tree.bind("<MouseWheel>", self._on_mousewheel)
+        self.tree.bind("<Button-4>",   lambda e: self._push_scroll(-1.0))
+        self.tree.bind("<Button-5>",   lambda e: self._push_scroll(1.0))
+
+    def _on_mousewheel(self, event):
+        self._push_scroll(-event.delta / 120.0)
+
+    def _push_scroll(self, lines: float):
+        """Add a scroll impulse; positive = down, negative = up."""
+        n = len(self.tree.get_children())
+        if n == 0:
+            return
+        # Spread _SCROLL_ROWS rows of distance across the decay curve
+        impulse = lines * _SCROLL_ROWS * (1.0 - _SCROLL_DECAY) / n
+        self._scroll_velocity += impulse
+        if self._scroll_after_id is None:
+            self._scroll_tick()
+
+    def _scroll_tick(self):
+        self._scroll_after_id = None
+        v = self._scroll_velocity
+        if abs(v) < 1e-6:
+            self._scroll_velocity = 0.0
+            return
+        first, last = self.tree.yview()
+        page      = last - first
+        new_first = first + v
+        if new_first <= 0.0:
+            new_first = 0.0
+            self._scroll_velocity = 0.0
+        elif new_first + page >= 1.0:
+            new_first = max(0.0, 1.0 - page)
+            self._scroll_velocity = 0.0
+        else:
+            self._scroll_velocity *= _SCROLL_DECAY
+        self.tree.yview_moveto(new_first)
+        self._on_scroll_tick()
+        if abs(self._scroll_velocity) >= 1e-6:
+            self._scroll_after_id = self.after(_SCROLL_STEP_MS, self._scroll_tick)
+
+    def _on_scroll_tick(self):
+        """Called on each animation frame. Subclasses override for live updates."""
+        pass
+
     def _show_empty_state(self, message: str = "No items found"):
         """Show helpful empty state instead of blank table."""
         # Disable table
@@ -834,14 +895,19 @@ class BaseScreen(tk.Frame):
             btn_x = cx + cw - btn_w - 6
             btn_y = cy + (ch - btn_h) // 2
 
+            # Parent to table_container (not self.tree) so z-order can be
+            # managed with lift() relative to art overlay labels.
+            tree_off_x = self.tree.winfo_x()
+            tree_off_y = self.tree.winfo_y()
             btn = tk.Label(
-                self.tree,
+                self.table_container,
                 text=btn_text,
                 bg=btn_bg, fg="#ffffff",
                 font=(UI_FONT, 8 + _F, "bold"),
                 cursor=HAND_CURSOR, padx=6, pady=0)
             btn.bind("<Button-1>", lambda e, i=item, h=handler: h(i))
-            btn.place(x=btn_x, y=btn_y, width=btn_w, height=btn_h)
+            btn.place(x=tree_off_x + btn_x, y=tree_off_y + btn_y,
+                      width=btn_w, height=btn_h)
             self._fix_buttons.append(btn)
 
     def _fix_item(self, item: dict):
