@@ -66,7 +66,7 @@ Function InstallModePageCreate
         "How would you like to install ${APP_NAME}?"
 
     ${NSD_CreateRadioButton} 10u 35u 90% 14u \
-        "Portable — copy to a folder of your choice (no registry entries, no Start Menu)"
+        "Portable - copy to a folder of your choice (no registry entries, no Start Menu)"
     Pop $RadioPortable
     ${NSD_SetState} $RadioPortable ${BST_CHECKED}
 
