@@ -11,7 +11,7 @@
 Unicode True
 
 !define APP_NAME      "NX-Librarian"
-!define APP_VERSION   "3.0.0-beta.10"
+!define APP_VERSION   "3.0.0-beta.11"
 !define APP_EXE       "NX-Librarian.exe"
 !define REGKEY        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NX-Librarian"
 !define UNINSTALLER   "Uninstall.exe"
@@ -21,9 +21,10 @@ OutFile "NX-Librarian-Setup.exe"
 BrandingText "${APP_NAME} ${APP_VERSION}"
 SetCompressor /SOLID lzma
 
-; Allow install without UAC for portable mode;
-; the user page will offer to escalate for Program Files install.
-RequestExecutionLevel user
+; Request admin rights so the installer can write to Program Files.
+; UAC prompt appears on launch; portable-mode users will also see it
+; but the elevation is required for the Program Files install path.
+RequestExecutionLevel admin
 
 ; ---------------------------------------------------------------------------
 ; MUI
@@ -134,10 +135,22 @@ Section "Main Application" SecMain
         WriteRegDWORD HKCU "${REGKEY}" "NoModify"        1
         WriteRegDWORD HKCU "${REGKEY}" "NoRepair"        1
     ${Else}
-        ; Portable: just launch and exit
-        Exec '"$INSTDIR\${APP_EXE}"'
+        ; Portable: launch immediately, but only in interactive mode.
+        ; Silent installs (auto-update) are handled by .onInstSuccess below.
+        ${IfNot} ${Silent}
+            Exec '"$INSTDIR\${APP_EXE}"'
+        ${EndIf}
     ${EndIf}
 SectionEnd
+
+; ---------------------------------------------------------------------------
+; Post-install callback — relaunch app after a silent (auto-update) install
+; ---------------------------------------------------------------------------
+Function .onInstSuccess
+    ${If} ${Silent}
+        Exec '"$INSTDIR\${APP_EXE}"'
+    ${EndIf}
+FunctionEnd
 
 ; ---------------------------------------------------------------------------
 ; Uninstaller

@@ -250,29 +250,30 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
     is_installer = new_path.lower().endswith(".exe") and "setup" in os.path.basename(new_path).lower()
 
     if is_installer:
-        script = (
-            f'@echo off\r\n'
-            f':wait\r\n'
-            f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
-            f'IF NOT ERRORLEVEL 1 (\r\n'
-            f'    timeout /t 1 /nobreak >NUL\r\n'
-            f'    GOTO wait\r\n'
-            f')\r\n'
-            f'start "" /wait "{new_path}" /S\r\n'
-            f'start "" "{current_exe}"\r\n'
+        # The NSIS installer requests admin rights (RequestExecutionLevel admin),
+        # so ShellExecuteW triggers a UAC prompt and the installer runs elevated.
+        # /SILENT skips the wizard UI but shows a progress window; the installer's
+        # .onInstSuccess callback relaunches the app after install completes.
+        # No batch-script needed — the installer owns the whole flow from here.
+        import ctypes
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "open", new_path, "/SILENT", None, 1
         )
-    else:
-        script = (
-            f'@echo off\r\n'
-            f':wait\r\n'
-            f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
-            f'IF NOT ERRORLEVEL 1 (\r\n'
-            f'    timeout /t 1 /nobreak >NUL\r\n'
-            f'    GOTO wait\r\n'
-            f')\r\n'
-            f'move /y "{new_path}" "{current_exe}"\r\n'
-            f'start "" "{current_exe}"\r\n'
-        )
+        quit_fn()
+        return
+
+    # Portable / raw exe: wait for this process to exit, then replace in-place.
+    script = (
+        f'@echo off\r\n'
+        f':wait\r\n'
+        f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
+        f'IF NOT ERRORLEVEL 1 (\r\n'
+        f'    timeout /t 1 /nobreak >NUL\r\n'
+        f'    GOTO wait\r\n'
+        f')\r\n'
+        f'move /y "{new_path}" "{current_exe}"\r\n'
+        f'start "" "{current_exe}"\r\n'
+    )
 
     fd, bat_path = tempfile.mkstemp(suffix=".bat")
     with os.fdopen(fd, "w") as fh:
