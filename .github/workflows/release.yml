@@ -35,6 +35,9 @@ jobs:
       - name: Install NSIS
         run: choco install nsis --no-progress -y
 
+      - name: Generate NSIS file list
+        run: python build_scripts/gen_nsis_filelist.py
+
       - name: Build NSIS installer
         run: |
           $tag = "${{ github.ref_name }}"

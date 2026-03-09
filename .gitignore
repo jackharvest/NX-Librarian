@@ -17,3 +17,6 @@ Thumbs.db
 # Editor
 .vscode/
 *.swp
+
+# NSIS generated file list (built by gen_nsis_filelist.py before makensis)
+installer/filelist.nsh
