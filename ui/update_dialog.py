@@ -1,30 +1,33 @@
 """
 ui/update_dialog.py — Auto-update dialog for NX-Librarian.
 
-Styled to match the app's dark theme. Downloads the release in a
-background thread and calls updater.apply_and_relaunch() on completion.
+Styled to match fix_tid_dialog.py — title-bar / content / footer layout,
+frame-based progress bar (no Canvas), and the safe grab_set() init sequence
+that avoids the Windows black-window bug.
 """
 
 import threading
 import tkinter as tk
-from tkinter import messagebox
 
 from constants import UI_FONT, FONT_BOOST, HAND_CURSOR, APP_VERSION
 import updater
 
 _F = FONT_BOOST
 
-# Colours (mirrors base_screen.py THEME)
-_BG       = "#0a0a14"
-_BG2      = "#151d33"
-_BG3      = "#1f2847"
-_FG       = "#ffffff"
-_FG2      = "#9ca3af"
-_ACCENT   = "#60a5fa"
-_ORANGE   = "#f97316"
-_GREEN    = "#10b981"
-_BAR_FG   = "#60a5fa"
-_BAR_BG   = "#1f2847"
+_T = {
+    "bg":         "#0a0a14",
+    "bg_card":    "#151d33",
+    "bg_hover":   "#1f2847",
+    "border":     "#2a3f5f",
+    "border_lt":  "#3a4a6f",
+    "text":       "#ffffff",
+    "text_dim":   "#9ca3af",
+    "text_muted": "#6b7280",
+    "accent":     "#60a5fa",
+    "ok":         "#10b981",
+    "warn":       "#f97316",
+    "danger":     "#ef4444",
+}
 
 
 class UpdateDialog(tk.Toplevel):
@@ -34,46 +37,36 @@ class UpdateDialog(tk.Toplevel):
     Parameters
     ----------
     parent      : tk widget
-    version     : str     — new version tag, e.g. "3.1.0"
-    asset_url   : str     — direct download URL for the platform asset
-    notes       : str     — release notes (markdown text)
-    html_url    : str     — GitHub release page URL (for Skip)
+    version     : str      — new version tag, e.g. "3.1.0"
+    asset_url   : str      — direct download URL for the platform asset
+    notes       : str      — release notes (markdown text)
+    html_url    : str      — GitHub release page URL (unused; kept for API compat)
     quit_fn     : callable — called after apply_and_relaunch to close the app
     """
 
     def __init__(self, parent, version, asset_url, notes, html_url, quit_fn=None):
-        root = parent.winfo_toplevel()
-        super().__init__(root)
+        super().__init__(parent)
         self._version   = version
         self._asset_url = asset_url
         self._notes     = notes
-        self._html_url  = html_url
-        self._quit_fn   = quit_fn or root.quit
+        self._quit_fn   = quit_fn or parent.winfo_toplevel().quit
 
         self.title(f"Update Available — NX-Librarian v{version}")
-        self.configure(bg=_BG)
         self.resizable(False, False)
-        self.transient(root)
+        self.configure(bg=_T["bg"])
+        self.transient(parent)
 
         self._build()
 
-        # Centre over the root window
+        # Safe init sequence — matches fix_tid_dialog.py pattern.
+        # update_idletasks() lays out geometry without processing events;
+        # grab_set() is called only after the window is fully laid out.
         self.update_idletasks()
-        rw = root.winfo_width()
-        rh = root.winfo_height()
-        rx = root.winfo_rootx()
-        ry = root.winfo_rooty()
-        w  = self.winfo_width()
-        h  = self.winfo_height()
-        x  = rx + (rw - w) // 2
-        y  = ry + (rh - h) // 2
-        self.geometry(f"+{x}+{y}")
-
-        # Fully render before grabbing — grabbing an unmapped window on
-        # Windows prevents the interior from ever painting (shows as black)
-        self.lift()
-        self.focus_force()
-        self.update()
+        root = parent.winfo_toplevel()
+        rx, ry = root.winfo_rootx(), root.winfo_rooty()
+        rw, rh = root.winfo_width(), root.winfo_height()
+        w,  h  = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{rx + (rw - w) // 2}+{ry + (rh - h) // 2}")
         self.grab_set()
 
     # ------------------------------------------------------------------
@@ -81,99 +74,120 @@ class UpdateDialog(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _build(self):
-        pad = dict(padx=24, pady=8)
+        # ── Title bar ──────────────────────────────────────────────────
+        title_bar = tk.Frame(self, bg=_T["bg_card"],
+                             highlightthickness=1,
+                             highlightbackground=_T["border"])
+        title_bar.pack(fill="x")
 
-        # Title
-        tk.Label(self, text=f"⬆  Update Available — NX-Librarian v{self._version}",
-                 bg=_BG, fg=_ACCENT, font=(UI_FONT, 14 + _F, "bold")).pack(**pad, pady=(20, 4))
+        tk.Label(title_bar,
+                 text=f"⬆  UPDATE AVAILABLE — v{self._version}",
+                 font=(UI_FONT, 13 + _F, "bold"),
+                 fg=_T["accent"], bg=_T["bg_card"],
+                 padx=20, pady=14).pack(side="left")
 
-        tk.Label(self, text=f"You have v{APP_VERSION}",
-                 bg=_BG, fg=_FG2, font=(UI_FONT, 10 + _F)).pack(padx=24, pady=(0, 8))
+        tk.Label(title_bar,
+                 text=f"You have v{APP_VERSION}",
+                 font=(UI_FONT, 9 + _F),
+                 fg=_T["text_dim"], bg=_T["bg_card"],
+                 padx=20).pack(side="right")
 
-        # Release notes
-        notes_frame = tk.Frame(self, bg=_BG2, bd=1, relief="flat")
-        notes_frame.pack(padx=24, pady=4, fill="both", expand=True)
+        # ── Release notes ──────────────────────────────────────────────
+        notes_outer = tk.Frame(self, bg=_T["bg_card"],
+                               highlightthickness=1,
+                               highlightbackground=_T["border"])
+        notes_outer.pack(fill="both", expand=True, pady=(1, 0))
 
-        notes_scroll = tk.Scrollbar(notes_frame, orient="vertical", bg=_BG3)
+        notes_scroll = tk.Scrollbar(notes_outer, orient="vertical",
+                                    bg=_T["bg_hover"])
         notes_scroll.pack(side="right", fill="y")
 
         self._notes_box = tk.Text(
-            notes_frame, height=12, width=62,
-            bg=_BG2, fg=_FG2, insertbackground=_FG,
+            notes_outer, height=14, width=60,
+            bg=_T["bg_card"], fg=_T["text_dim"],
+            insertbackground=_T["text"],
             font=(UI_FONT, 9 + _F), relief="flat", bd=0,
             wrap="word", state="normal",
             yscrollcommand=notes_scroll.set,
+            padx=14, pady=10,
         )
         self._notes_box.insert("1.0", self._notes or "(No release notes)")
         self._notes_box.config(state="disabled")
-        self._notes_box.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        self._notes_box.pack(side="left", fill="both", expand=True)
         notes_scroll.config(command=self._notes_box.yview)
 
-        # Progress bar (Canvas-drawn)
-        self._bar_canvas = tk.Canvas(self, height=18, bg=_BG, highlightthickness=0)
-        self._bar_canvas.pack(padx=24, pady=(12, 4), fill="x")
-        self._bar_pct_lbl = tk.Label(self, text="", bg=_BG, fg=_FG2,
-                                     font=(UI_FONT, 9 + _F))
-        self._bar_pct_lbl.pack(padx=24)
+        # ── Progress bar ───────────────────────────────────────────────
+        prog_frame = tk.Frame(self, bg=_T["bg"],
+                              highlightthickness=1,
+                              highlightbackground=_T["border"])
+        prog_frame.pack(fill="x", pady=(1, 0))
 
-        self._draw_bar(0)
+        prog_inner = tk.Frame(prog_frame, bg=_T["bg"])
+        prog_inner.pack(fill="x", padx=16, pady=10)
 
-        # Buttons
-        btn_frame = tk.Frame(self, bg=_BG)
-        btn_frame.pack(padx=24, pady=(12, 20))
+        # Track (fixed height container)
+        track = tk.Frame(prog_inner, bg=_T["border"], height=10)
+        track.pack(fill="x")
+        track.pack_propagate(False)
 
-        self._dl_btn = self._make_btn(
-            btn_frame, "⬇  Download & Install", _ACCENT, self._on_download)
+        # Fill bar — relwidth driven by _draw_bar()
+        self._bar_fill = tk.Frame(track, bg=_T["accent"])
+        self._bar_fill.place(x=0, y=0, relheight=1.0, relwidth=0.0)
+
+        self._pct_lbl = tk.Label(prog_inner, text="",
+                                 bg=_T["bg"], fg=_T["text_dim"],
+                                 font=(UI_FONT, 8 + _F))
+        self._pct_lbl.pack(anchor="e", pady=(2, 0))
+
+        # ── Footer ─────────────────────────────────────────────────────
+        footer = tk.Frame(self, bg=_T["bg_card"],
+                          highlightthickness=1,
+                          highlightbackground=_T["border"])
+        footer.pack(fill="x", side="bottom")
+
+        fi = tk.Frame(footer, bg=_T["bg_card"])
+        fi.pack(fill="x", padx=16, pady=12)
+
+        self._dl_btn = self._btn(fi, "⬇  Download & Install",
+                                 _T["accent"], self._on_download)
         self._dl_btn.pack(side="left", padx=(0, 8))
 
-        self._skip_btn = self._make_btn(
-            btn_frame, "Skip This Version", _FG2, self._on_skip)
+        self._skip_btn = self._btn(fi, "Skip This Version",
+                                   _T["text_dim"], self._on_skip)
         self._skip_btn.pack(side="left", padx=(0, 8))
 
-        self._later_btn = self._make_btn(
-            btn_frame, "Later", _FG2, self.destroy)
+        self._later_btn = self._btn(fi, "Later",
+                                    _T["text_dim"], self.destroy)
         self._later_btn.pack(side="left")
 
     @staticmethod
-    def _make_btn(parent, text, fg, cmd):
-        btn = tk.Label(parent, text=text, fg=fg, bg="#1f2847",
-                       font=(UI_FONT, 10 + _F, "bold"),
-                       padx=14, pady=6, cursor=HAND_CURSOR, relief="flat")
-        btn.bind("<Button-1>", lambda e: cmd())
-        btn.bind("<Enter>", lambda e: btn.config(bg="#2a3f5f"))
-        btn.bind("<Leave>", lambda e: btn.config(bg="#1f2847"))
-        return btn
+    def _btn(parent, text, fg, cmd):
+        b = tk.Label(parent, text=text, fg=fg, bg=_T["bg_hover"],
+                     font=(UI_FONT, 10 + _F, "bold"),
+                     padx=14, pady=6, cursor=HAND_CURSOR, relief="flat")
+        b.bind("<Button-1>", lambda e: cmd())
+        b.bind("<Enter>",    lambda e: b.config(bg=_T["border_lt"]))
+        b.bind("<Leave>",    lambda e: b.config(bg=_T["bg_hover"]))
+        return b
 
     # ------------------------------------------------------------------
-    # Progress bar drawing
+    # Progress
     # ------------------------------------------------------------------
-
-    def _draw_bar(self, pct: int):
-        self._bar_canvas.update_idletasks()
-        w = self._bar_canvas.winfo_width() or 500
-        h = 18
-        self._bar_canvas.delete("all")
-        # Track
-        self._bar_canvas.create_rectangle(0, 4, w, h - 4,
-                                          fill=_BAR_BG, outline="", width=0)
-        # Fill
-        fill_w = int(w * pct / 100)
-        if fill_w > 0:
-            self._bar_canvas.create_rectangle(0, 4, fill_w, h - 4,
-                                              fill=_BAR_FG, outline="", width=0)
-        self._bar_pct_lbl.config(text=f"{pct}%")
 
     def _set_progress(self, pct: int):
-        """Thread-safe progress update via after()."""
+        """Thread-safe progress update."""
         self.after(0, self._draw_bar, pct)
+
+    def _draw_bar(self, pct: int):
+        self._bar_fill.place(relwidth=pct / 100)
+        self._pct_lbl.config(text=f"{pct}%" if pct > 0 else "")
 
     # ------------------------------------------------------------------
     # Button callbacks
     # ------------------------------------------------------------------
 
     def _on_download(self):
-        """Start download in background thread."""
-        self._dl_btn.config(text="Downloading…", fg=_FG2, cursor="")
+        self._dl_btn.config(text="Downloading…", fg=_T["text_dim"], cursor="")
         self._dl_btn.unbind("<Button-1>")
         self._skip_btn.unbind("<Button-1>")
         self._later_btn.unbind("<Button-1>")
@@ -186,13 +200,13 @@ class UpdateDialog(tk.Toplevel):
 
     def _on_download_complete(self, path):
         if path is None:
-            self._dl_btn.config(text="Download failed — try again", fg="#ef4444")
+            self._dl_btn.config(text="Download failed — try again",
+                                fg=_T["danger"])
             self._dl_btn.bind("<Button-1>", lambda e: self._on_download())
             return
 
         self._draw_bar(100)
-        self._dl_btn.config(text="Installing…", fg=_GREEN)
-        # Brief pause so user sees 100%
+        self._dl_btn.config(text="Installing…", fg=_T["ok"])
         self.after(400, lambda: updater.apply_and_relaunch(path, self._quit_fn))
 
     def _on_skip(self):
