@@ -18,6 +18,7 @@ Unicode True
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "NX-Librarian-Setup.exe"
+InstallDir "$PROGRAMFILES64\NX-Librarian"
 BrandingText "${APP_NAME} ${APP_VERSION}"
 SetCompressor /SOLID lzma
 

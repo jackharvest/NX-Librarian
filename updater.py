@@ -273,10 +273,16 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
         # vanilla launch context, equivalent to double-clicking the exe.
         # Separating install (elevated, PS1) from relaunch (non-elevated, bat)
         # avoids any environment bleed from the elevated installer context.
+        # ArgumentList must be a single string (not an array) so PowerShell
+        # does not individually quote each item. NSIS /D= must be the last
+        # argument and cannot be quoted — a per-item array would wrap the
+        # path in quotes and break /D= parsing. The correct NSIS silent flag
+        # is /S, not /SILENT.
+        safe_dir = install_dir.replace("'", "''")
         ps_lines = (
             f"Start-Process"
             f" -FilePath '{new_path.replace(chr(39), chr(39)*2)}'"
-            f" -ArgumentList '/SILENT','/D={install_dir.replace(chr(39), chr(39)*2)}'"
+            f" -ArgumentList '/S /D={safe_dir}'"
             f" -Wait -Verb RunAs\n"
         )
         fd_ps, ps_path = tempfile.mkstemp(suffix=".ps1")
