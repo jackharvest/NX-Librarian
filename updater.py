@@ -279,14 +279,15 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             f'    timeout /t 1 /nobreak >NUL\r\n'
             f'    GOTO wait\r\n'
             f')\r\n'
+            f'taskkill /F /IM "NX-Librarian.exe" >NUL 2>&1\r\n'
+            f'timeout /t 3 /nobreak >NUL\r\n'
             f'"{new_path}" /S /D={install_dir}\r\n'
             f'timeout /t 2 /nobreak >NUL\r\n'
             f'start "" "{current_exe}"\r\n'
         )
-        # With onedir mode (--onedir PyInstaller) there is no _MEI* temp
-        # extraction — all DLLs live permanently in the install dir.
-        # 'start ""' is safe; no PyInstaller env-pollution can affect DLL
-        # loading because the loader resolves DLLs from the exe directory.
+        # taskkill after the PID loop ensures any handle Windows Defender
+        # or the shell kept on the exe is released before NSIS overwrites it.
+        # The 3 s pause lets Windows fully flush all file handles.
 
         fd, bat_path = tempfile.mkstemp(suffix=".bat")
         with os.fdopen(fd, "w") as fh:
