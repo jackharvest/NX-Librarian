@@ -52,21 +52,17 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# ── Windows / Linux: single-file EXE / binary ─────────────────────────────────
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,                  # onedir: binaries collected separately
     name='NX-Librarian',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,                          # No console window
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -78,7 +74,19 @@ exe = EXE(
          'icon.icns' if sys.platform == 'darwin' else None),
 )
 
-# ── macOS: .app bundle (in addition to the bare binary above) ─────────────────
+# ── onedir: collect all binaries/datas into dist/NX-Librarian/ ────────────────
+if sys.platform != 'darwin':
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        name='NX-Librarian',
+    )
+
+# ── macOS: .app bundle ────────────────────────────────────────────────────────
 if sys.platform == 'darwin':
     app = BUNDLE(
         exe,

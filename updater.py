@@ -280,12 +280,13 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             f'    GOTO wait\r\n'
             f')\r\n'
             f'"{new_path}" /S /D={install_dir}\r\n'
-            f'explorer.exe "{current_exe}"\r\n'
+            f'timeout /t 2 /nobreak >NUL\r\n'
+            f'start "" "{current_exe}"\r\n'
         )
-        # explorer.exe launches the app with a clean user-shell environment,
-        # identical to double-clicking. 'start ""' inherits cmd.exe's env
-        # which carries PyInstaller's modified state and causes _MEI* DLL
-        # load failures in the new process.
+        # With onedir mode (--onedir PyInstaller) there is no _MEI* temp
+        # extraction — all DLLs live permanently in the install dir.
+        # 'start ""' is safe; no PyInstaller env-pollution can affect DLL
+        # loading because the loader resolves DLLs from the exe directory.
 
         fd, bat_path = tempfile.mkstemp(suffix=".bat")
         with os.fdopen(fd, "w") as fh:

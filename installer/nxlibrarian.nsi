@@ -11,7 +11,7 @@
 Unicode True
 
 !define APP_NAME      "NX-Librarian"
-!define APP_VERSION   "3.0.0-beta.23"
+!define APP_VERSION   "3.0.0-beta.24"
 !define APP_EXE       "NX-Librarian.exe"
 
 Name "${APP_NAME} ${APP_VERSION}"
@@ -84,11 +84,12 @@ FunctionEnd
 Section "Main Application" SecMain
     SectionIn RO
 
+    ; Install the full onedir bundle.  File /r preserves the subdirectory
+    ; structure produced by PyInstaller --onedir (NX-Librarian.exe + _internal\).
     SetOutPath $INSTDIR
-    File "..\dist\${APP_EXE}"
+    File /r "..\dist\NX-Librarian\."
 
-    ; Auto-update (silent): just replace the binary and exit.
-    ; The updater batch script relaunches the app after we exit.
+    ; Auto-update (silent): files are replaced, batch script relaunches.
     ${If} ${Silent}
         Return
     ${EndIf}
