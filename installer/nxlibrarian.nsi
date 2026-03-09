@@ -53,6 +53,11 @@ Var CheckDesktop
 Var DesktopShortcut
 
 Function ShortcutPageCreate
+    ; Custom pages are NOT auto-skipped by /S — must check explicitly.
+    ${If} ${Silent}
+        Abort
+    ${EndIf}
+
     nsDialogs::Create 1018
     Pop $Dialog
     ${If} $Dialog == error
