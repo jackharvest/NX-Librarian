@@ -44,6 +44,8 @@ Var DesktopShortcut
 Page custom InstallModePageCreate InstallModePageLeave
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+; Offer to launch the app after an interactive install
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -110,6 +112,12 @@ Section "Main Application" SecMain
     SetOutPath $INSTDIR
     File "..\dist\${APP_EXE}"
 
+    ; Auto-update (silent): just replace the binary and exit.
+    ; The updater's batch script relaunches the app after we exit.
+    ${If} ${Silent}
+        Return
+    ${EndIf}
+
     ${If} $InstallMode == "install"
         ; Write uninstaller
         WriteUninstaller "$INSTDIR\${UNINSTALLER}"
@@ -135,22 +143,9 @@ Section "Main Application" SecMain
         WriteRegDWORD HKCU "${REGKEY}" "NoModify"        1
         WriteRegDWORD HKCU "${REGKEY}" "NoRepair"        1
     ${Else}
-        ; Portable: launch immediately, but only in interactive mode.
-        ; Silent installs (auto-update) are handled by .onInstSuccess below.
-        ${IfNot} ${Silent}
-            Exec '"$INSTDIR\${APP_EXE}"'
-        ${EndIf}
+        ; Portable: finish page MUI_FINISHPAGE_RUN handles launch.
     ${EndIf}
 SectionEnd
-
-; ---------------------------------------------------------------------------
-; Post-install callback — relaunch app after a silent (auto-update) install
-; ---------------------------------------------------------------------------
-Function .onInstSuccess
-    ${If} ${Silent}
-        Exec '"$INSTDIR\${APP_EXE}"'
-    ${EndIf}
-FunctionEnd
 
 ; ---------------------------------------------------------------------------
 ; Uninstaller

@@ -250,16 +250,37 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
     is_installer = new_path.lower().endswith(".exe") and "setup" in os.path.basename(new_path).lower()
 
     if is_installer:
-        # We must wait for THIS process to fully exit before launching the
-        # installer. PyInstaller one-file apps extract to a _MEI* temp dir;
-        # if the installer relaunches the new exe while the old process is
-        # still alive, the new app may reuse (and then lose) the old temp dir,
-        # causing a "Failed to load Python DLL" crash.
+        # Two hard problems on Windows:
         #
-        # Fix: batch script waits for our PID to disappear, then runs the
-        # installer directly (no 'start'). cmd.exe waits for the installer
-        # even when UAC elevation kicks in, so .onInstSuccess fires only after
-        # the old temp dir is long gone.
+        # 1. PyInstaller temp-dir race: the old app's _MEI* extraction dir is
+        #    deleted on exit. If the new app starts before the old one fully
+        #    exits it may try to reuse/share that dir, then find it gone.
+        #    Fix: wait for our PID to disappear before running the installer.
+        #
+        # 2. UAC wait: cmd.exe's built-in wait for elevated child processes is
+        #    unreliable — it may return before the elevated process finishes.
+        #    Fix: use PowerShell's Start-Process -Wait -Verb RunAs, which
+        #    properly waits for the elevated installer to complete.
+        #
+        # The NSIS installer does NOT relaunch the app in silent mode; we do
+        # it here via Start-Process after the installer exits, so there is
+        # exactly one new instance and it starts only after the temp dir is
+        # fully gone.
+        install_dir = os.path.dirname(current_exe)
+
+        # Write a tiny PS1 so we avoid quoting hell inside the batch -Command.
+        ps_lines = (
+            f"Start-Process"
+            f" -FilePath '{new_path.replace(chr(39), chr(39)*2)}'"
+            f" -ArgumentList '/SILENT','/D={install_dir.replace(chr(39), chr(39)*2)}'"
+            f" -Wait -Verb RunAs\n"
+            f"Start-Process"
+            f" -FilePath '{current_exe.replace(chr(39), chr(39)*2)}'\n"
+        )
+        fd_ps, ps_path = tempfile.mkstemp(suffix=".ps1")
+        with os.fdopen(fd_ps, "w") as fh:
+            fh.write(ps_lines)
+
         script = (
             f'@echo off\r\n'
             f':wait\r\n'
@@ -268,11 +289,12 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             f'    timeout /t 1 /nobreak >NUL\r\n'
             f'    GOTO wait\r\n'
             f')\r\n'
-            f'"{new_path}" /SILENT\r\n'
+            f'powershell -ExecutionPolicy Bypass -File "{ps_path}"\r\n'
         )
         fd, bat_path = tempfile.mkstemp(suffix=".bat")
         with os.fdopen(fd, "w") as fh:
             fh.write(script)
+
         import subprocess
         subprocess.Popen(
             ["cmd.exe", "/c", bat_path],
