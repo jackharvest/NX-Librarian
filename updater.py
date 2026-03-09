@@ -280,8 +280,12 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             f'    GOTO wait\r\n'
             f')\r\n'
             f'"{new_path}" /S /D={install_dir}\r\n'
-            f'start "" "{current_exe}"\r\n'
+            f'explorer.exe "{current_exe}"\r\n'
         )
+        # explorer.exe launches the app with a clean user-shell environment,
+        # identical to double-clicking. 'start ""' inherits cmd.exe's env
+        # which carries PyInstaller's modified state and causes _MEI* DLL
+        # load failures in the new process.
 
         fd, bat_path = tempfile.mkstemp(suffix=".bat")
         with os.fdopen(fd, "w") as fh:
