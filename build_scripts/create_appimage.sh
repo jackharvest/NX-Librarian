@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # build_scripts/create_appimage.sh
 #
-# Assembles a Linux .AppImage from the PyInstaller one-file binary.
+# Assembles a Linux .AppImage from the PyInstaller onedir bundle.
 #
 # Prerequisites:
-#   - PyInstaller binary at dist/NX-Librarian
+#   - PyInstaller onedir output at dist/NX-Librarian/
 #   - appimagetool available (downloaded here if absent)
 #   - FUSE support on the build machine (or --appimage-extract-and-run)
 #
@@ -17,14 +17,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
-BINARY="$DIST/NX-Librarian"
+BUNDLE_DIR="$DIST/NX-Librarian"
+BINARY="$BUNDLE_DIR/NX-Librarian"
 APPDIR="$DIST/AppDir"
 APPIMAGETOOL="$DIST/appimagetool"
 OUTPUT="$DIST/NX-Librarian-x86_64.AppImage"
 
-# ── 1. Verify binary ──────────────────────────────────────────────────────────
-if [ ! -f "$BINARY" ]; then
-    echo "ERROR: PyInstaller binary not found at $BINARY"
+# ── 1. Verify onedir bundle ───────────────────────────────────────────────────
+if [ ! -d "$BUNDLE_DIR" ] || [ ! -f "$BINARY" ]; then
+    echo "ERROR: PyInstaller onedir bundle not found at $BUNDLE_DIR"
     echo "       Run 'pyinstaller main.spec' first."
     exit 1
 fi
@@ -40,11 +41,19 @@ fi
 
 # ── 3. Assemble AppDir ────────────────────────────────────────────────────────
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin"
+mkdir -p "$APPDIR/usr/lib/nxlibrarian"
 mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-cp "$BINARY" "$APPDIR/usr/bin/NX-Librarian"
+# Copy entire onedir bundle into usr/lib/nxlibrarian/
+cp -r "$BUNDLE_DIR/." "$APPDIR/usr/lib/nxlibrarian/"
+
+# AppRun launches the bundled binary with $APPDIR resolved at runtime
+cat > "$APPDIR/AppRun" <<'APPRUN'
+#!/bin/bash
+exec "$(dirname "$(readlink -f "$0")")/usr/lib/nxlibrarian/NX-Librarian" "$@"
+APPRUN
+chmod +x "$APPDIR/AppRun"
 
 # Desktop entry
 cat > "$APPDIR/usr/share/applications/nxlibrarian.desktop" <<EOF
@@ -57,13 +66,12 @@ Type=Application
 Categories=Utility;
 EOF
 
-# Icon (use logo.png as the app icon; requires it be 256x256 or similar)
+# Icon
 cp "$ROOT/logo.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/nxlibrarian.png"
 
 # AppDir root symlinks required by AppImage spec
 cp "$APPDIR/usr/share/applications/nxlibrarian.desktop" "$APPDIR/"
 cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/nxlibrarian.png" "$APPDIR/"
-ln -sf usr/bin/NX-Librarian "$APPDIR/AppRun"
 
 # ── 4. Build AppImage ─────────────────────────────────────────────────────────
 echo "Building AppImage …"

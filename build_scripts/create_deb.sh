@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build_scripts/create_deb.sh
 #
-# Builds a Debian/Ubuntu .deb package from the PyInstaller one-file binary.
+# Builds a Debian/Ubuntu .deb package from the PyInstaller onedir bundle.
 #
 # Usage (from project root):
 #   bash build_scripts/create_deb.sh [version]
@@ -12,25 +12,35 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
-BINARY="$DIST/NX-Librarian"
+BUNDLE_DIR="$DIST/NX-Librarian"
+BINARY="$BUNDLE_DIR/NX-Librarian"
 VERSION="${1:-3.0.0}"
 PKG_DIR="$DIST/deb_pkg"
 DEB_OUT="$DIST/nxlibrarian_${VERSION}_amd64.deb"
 
-if [ ! -f "$BINARY" ]; then
-    echo "ERROR: Binary not found at $BINARY — run pyinstaller main.spec first."
+if [ ! -d "$BUNDLE_DIR" ] || [ ! -f "$BINARY" ]; then
+    echo "ERROR: PyInstaller onedir bundle not found at $BUNDLE_DIR — run pyinstaller main.spec first."
     exit 1
 fi
 
 # ── Assemble package tree ─────────────────────────────────────────────────────
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/DEBIAN"
+mkdir -p "$PKG_DIR/opt/nxlibrarian"
 mkdir -p "$PKG_DIR/usr/bin"
 mkdir -p "$PKG_DIR/usr/share/applications"
 mkdir -p "$PKG_DIR/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$PKG_DIR/usr/share/pixmaps"
 
-cp "$BINARY" "$PKG_DIR/usr/bin/nxlibrarian"
+# Copy entire onedir bundle to /opt/nxlibrarian/
+cp -r "$BUNDLE_DIR/." "$PKG_DIR/opt/nxlibrarian/"
+chmod 755 "$PKG_DIR/opt/nxlibrarian/NX-Librarian"
+
+# Wrapper script on PATH
+cat > "$PKG_DIR/usr/bin/nxlibrarian" <<'WRAPPER'
+#!/bin/sh
+exec /opt/nxlibrarian/NX-Librarian "$@"
+WRAPPER
 chmod 755 "$PKG_DIR/usr/bin/nxlibrarian"
 
 cp "$ROOT/logo.png" "$PKG_DIR/usr/share/icons/hicolor/256x256/apps/nxlibrarian.png"
