@@ -13,94 +13,63 @@ Unicode True
 !define APP_NAME      "NX-Librarian"
 !define APP_VERSION   "3.0.0-beta.20"
 !define APP_EXE       "NX-Librarian.exe"
-!define REGKEY        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NX-Librarian"
-!define UNINSTALLER   "Uninstall.exe"
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "NX-Librarian-Setup.exe"
-InstallDir "$PROGRAMFILES64\NX-Librarian"
 BrandingText "${APP_NAME} ${APP_VERSION}"
 SetCompressor /SOLID lzma
 
-; Request admin rights so the installer can write to Program Files.
-; UAC prompt appears on launch; portable-mode users will also see it
-; but the elevation is required for the Program Files install path.
-RequestExecutionLevel admin
+; Portable-only: installs to user-writable AppData — no admin rights needed.
+RequestExecutionLevel user
+InstallDir "$LOCALAPPDATA\NX-Librarian"
 
 ; ---------------------------------------------------------------------------
 ; MUI
 ; ---------------------------------------------------------------------------
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 
-; Variables
-Var InstallMode   ; "portable" or "install"
-Var DesktopShortcut
+; Finish page — offer to launch the app
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 
 ; Pages
-Page custom InstallModePageCreate InstallModePageLeave
+Page custom ShortcutPageCreate ShortcutPageLeave
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-; Offer to launch the app after an interactive install
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !insertmacro MUI_PAGE_FINISH
-
-!insertmacro MUI_UNPAGE_CONFIRM
-!insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "English"
 
 ; ---------------------------------------------------------------------------
-; Install mode custom page
+; Desktop shortcut option
 ; ---------------------------------------------------------------------------
-!include "nsDialogs.nsh"
 Var Dialog
-Var RadioPortable
-Var RadioInstall
 Var CheckDesktop
+Var DesktopShortcut
 
-Function InstallModePageCreate
+Function ShortcutPageCreate
     nsDialogs::Create 1018
     Pop $Dialog
     ${If} $Dialog == error
         Abort
     ${EndIf}
 
-    ${NSD_CreateLabel} 0 0 100% 30u \
-        "How would you like to install ${APP_NAME}?"
+    ${NSD_CreateLabel} 0 0 100% 20u \
+        "Choose install location on the next page (default: AppData\Local\NX-Librarian)."
 
-    ${NSD_CreateRadioButton} 10u 35u 90% 14u \
-        "Portable - copy to a folder of your choice (no registry entries, no Start Menu)"
-    Pop $RadioPortable
-    ${NSD_SetState} $RadioPortable ${BST_CHECKED}
-
-    ${NSD_CreateRadioButton} 10u 55u 90% 14u \
-        "Install to Program Files (creates Start Menu shortcut, optional Desktop shortcut)"
-    Pop $RadioInstall
-
-    ${NSD_CreateCheckbox} 20u 75u 90% 14u \
-        "Create Desktop shortcut"
+    ${NSD_CreateCheckbox} 10u 30u 90% 14u "Create Desktop shortcut"
     Pop $CheckDesktop
     ${NSD_SetState} $CheckDesktop ${BST_CHECKED}
 
     nsDialogs::Show
 FunctionEnd
 
-Function InstallModePageLeave
-    ${NSD_GetState} $RadioPortable $0
-    ${If} $0 == ${BST_CHECKED}
-        StrCpy $InstallMode "portable"
-        ; Portable: suggest a simple writable folder
-        StrCpy $INSTDIR "$LOCALAPPDATA\NX-Librarian"
-    ${Else}
-        StrCpy $InstallMode "install"
-        StrCpy $INSTDIR "$PROGRAMFILES64\NX-Librarian"
-    ${EndIf}
-
+Function ShortcutPageLeave
     ${NSD_GetState} $CheckDesktop $DesktopShortcut
 FunctionEnd
 
@@ -114,53 +83,14 @@ Section "Main Application" SecMain
     File "..\dist\${APP_EXE}"
 
     ; Auto-update (silent): just replace the binary and exit.
-    ; The updater's batch script relaunches the app after we exit.
+    ; The updater batch script relaunches the app after we exit.
     ${If} ${Silent}
         Return
     ${EndIf}
 
-    ${If} $InstallMode == "install"
-        ; Write uninstaller
-        WriteUninstaller "$INSTDIR\${UNINSTALLER}"
-
-        ; Start Menu
-        CreateDirectory "$SMPROGRAMS\NX-Librarian"
-        CreateShortcut  "$SMPROGRAMS\NX-Librarian\NX-Librarian.lnk" \
-                        "$INSTDIR\${APP_EXE}"
-        CreateShortcut  "$SMPROGRAMS\NX-Librarian\Uninstall.lnk" \
-                        "$INSTDIR\${UNINSTALLER}"
-
-        ; Desktop shortcut (optional)
-        ${If} $DesktopShortcut == ${BST_CHECKED}
-            CreateShortcut "$DESKTOP\NX-Librarian.lnk" "$INSTDIR\${APP_EXE}"
-        ${EndIf}
-
-        ; Registry (HKCU - no UAC required)
-        WriteRegStr   HKCU "${REGKEY}" "DisplayName"     "${APP_NAME}"
-        WriteRegStr   HKCU "${REGKEY}" "DisplayVersion"  "${APP_VERSION}"
-        WriteRegStr   HKCU "${REGKEY}" "Publisher"       "jackharvest"
-        WriteRegStr   HKCU "${REGKEY}" "UninstallString" '"$INSTDIR\${UNINSTALLER}"'
-        WriteRegStr   HKCU "${REGKEY}" "InstallLocation" "$INSTDIR"
-        WriteRegDWORD HKCU "${REGKEY}" "NoModify"        1
-        WriteRegDWORD HKCU "${REGKEY}" "NoRepair"        1
-    ${Else}
-        ; Portable: finish page MUI_FINISHPAGE_RUN handles launch.
+    ; Desktop shortcut (optional)
+    ${If} $DesktopShortcut == ${BST_CHECKED}
+        CreateShortcut "$DESKTOP\NX-Librarian.lnk" "$INSTDIR\${APP_EXE}"
     ${EndIf}
 SectionEnd
 
-; ---------------------------------------------------------------------------
-; Uninstaller
-; ---------------------------------------------------------------------------
-Section "Uninstall"
-    Delete "$INSTDIR\${APP_EXE}"
-    Delete "$INSTDIR\${UNINSTALLER}"
-    RMDir  "$INSTDIR"
-
-    Delete "$SMPROGRAMS\NX-Librarian\NX-Librarian.lnk"
-    Delete "$SMPROGRAMS\NX-Librarian\Uninstall.lnk"
-    RMDir  "$SMPROGRAMS\NX-Librarian"
-
-    Delete "$DESKTOP\NX-Librarian.lnk"
-
-    DeleteRegKey HKCU "${REGKEY}"
-SectionEnd

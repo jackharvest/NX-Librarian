@@ -266,44 +266,20 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
         # it here via Start-Process after the installer exits, so there is
         # exactly one new instance and it starts only after the temp dir is
         # fully gone.
-        install_dir    = os.path.dirname(current_exe)
-        installer_name = os.path.basename(new_path)
+        install_dir = os.path.dirname(current_exe)
 
-        # Root cause of every prior attempt: any shell layer (cmd, PowerShell)
-        # wraps arguments that contain spaces in double-quotes, so NSIS never
-        # sees /S as a bare flag and never enters silent mode — the wizard shows.
-        #
-        # Fix: ShellExecuteW directly. lpParameters is appended to the command
-        # line as-is with no shell quoting, so NSIS receives exactly:
-        #   /S /D=C:\Program Files\NX-Librarian
-        # "runas" verb requests UAC elevation without any shell intermediary.
-        #
-        # ShellExecuteW is fire-and-forget, so the batch script polls for the
-        # installer process by name: wait for it to appear (up to 20 s to allow
-        # for UAC delay), then wait for it to exit, then relaunch the app.
+        # Installer targets user-writable AppData — no elevation needed.
+        # NSIS reads /D= from the raw command line to end-of-line, so spaces
+        # in the path are handled correctly without any quoting tricks.
         script = (
             f'@echo off\r\n'
-            f':wait_app\r\n'
+            f':wait\r\n'
             f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
             f'IF NOT ERRORLEVEL 1 (\r\n'
             f'    timeout /t 1 /nobreak >NUL\r\n'
-            f'    GOTO wait_app\r\n'
+            f'    GOTO wait\r\n'
             f')\r\n'
-            f'SET ATTEMPTS=0\r\n'
-            f':wait_appear\r\n'
-            f'tasklist /FI "IMAGENAME eq {installer_name}" 2>NUL | find /I "{installer_name}" >NUL\r\n'
-            f'IF NOT ERRORLEVEL 1 GOTO wait_done\r\n'
-            f'SET /A ATTEMPTS=ATTEMPTS+1\r\n'
-            f'IF %ATTEMPTS% GEQ 10 GOTO relaunch\r\n'
-            f'timeout /t 2 /nobreak >NUL\r\n'
-            f'GOTO wait_appear\r\n'
-            f':wait_done\r\n'
-            f'tasklist /FI "IMAGENAME eq {installer_name}" 2>NUL | find /I "{installer_name}" >NUL\r\n'
-            f'IF NOT ERRORLEVEL 1 (\r\n'
-            f'    timeout /t 2 /nobreak >NUL\r\n'
-            f'    GOTO wait_done\r\n'
-            f')\r\n'
-            f':relaunch\r\n'
+            f'"{new_path}" /S /D={install_dir}\r\n'
             f'start "" "{current_exe}"\r\n'
         )
 
@@ -312,20 +288,11 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             fh.write(script)
 
         import subprocess
-        import ctypes
-
         subprocess.Popen(
             ["cmd.exe", "/c", bat_path],
             creationflags=subprocess.CREATE_NO_WINDOW,
             close_fds=True,
         )
-
-        # Launch installer elevated. lpParameters goes straight to NSIS with
-        # no shell in between, so spaces in /D= are handled correctly.
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", new_path, f"/S /D={install_dir}", None, 1
-        )
-
         quit_fn()
         return
 
