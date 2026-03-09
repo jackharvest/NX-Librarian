@@ -268,14 +268,16 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
         # fully gone.
         install_dir = os.path.dirname(current_exe)
 
-        # Write a tiny PS1 so we avoid quoting hell inside the batch -Command.
+        # PS1 only runs the installer and waits for it.
+        # The batch script does the relaunch via cmd's 'start' — the most
+        # vanilla launch context, equivalent to double-clicking the exe.
+        # Separating install (elevated, PS1) from relaunch (non-elevated, bat)
+        # avoids any environment bleed from the elevated installer context.
         ps_lines = (
             f"Start-Process"
             f" -FilePath '{new_path.replace(chr(39), chr(39)*2)}'"
             f" -ArgumentList '/SILENT','/D={install_dir.replace(chr(39), chr(39)*2)}'"
             f" -Wait -Verb RunAs\n"
-            f"Start-Process"
-            f" -FilePath '{current_exe.replace(chr(39), chr(39)*2)}'\n"
         )
         fd_ps, ps_path = tempfile.mkstemp(suffix=".ps1")
         with os.fdopen(fd_ps, "w") as fh:
@@ -290,6 +292,7 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
             f'    GOTO wait\r\n'
             f')\r\n'
             f'powershell -ExecutionPolicy Bypass -File "{ps_path}"\r\n'
+            f'start "" "{current_exe}"\r\n'
         )
         fd, bat_path = tempfile.mkstemp(suffix=".bat")
         with os.fdopen(fd, "w") as fh:
