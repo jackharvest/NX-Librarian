@@ -250,14 +250,34 @@ def _apply_windows(new_path, current_exe, pid, quit_fn):
     is_installer = new_path.lower().endswith(".exe") and "setup" in os.path.basename(new_path).lower()
 
     if is_installer:
-        # The NSIS installer requests admin rights (RequestExecutionLevel admin),
-        # so ShellExecuteW triggers a UAC prompt and the installer runs elevated.
-        # /SILENT skips the wizard UI but shows a progress window; the installer's
-        # .onInstSuccess callback relaunches the app after install completes.
-        # No batch-script needed — the installer owns the whole flow from here.
-        import ctypes
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "open", new_path, "/SILENT", None, 1
+        # We must wait for THIS process to fully exit before launching the
+        # installer. PyInstaller one-file apps extract to a _MEI* temp dir;
+        # if the installer relaunches the new exe while the old process is
+        # still alive, the new app may reuse (and then lose) the old temp dir,
+        # causing a "Failed to load Python DLL" crash.
+        #
+        # Fix: batch script waits for our PID to disappear, then runs the
+        # installer directly (no 'start'). cmd.exe waits for the installer
+        # even when UAC elevation kicks in, so .onInstSuccess fires only after
+        # the old temp dir is long gone.
+        script = (
+            f'@echo off\r\n'
+            f':wait\r\n'
+            f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
+            f'IF NOT ERRORLEVEL 1 (\r\n'
+            f'    timeout /t 1 /nobreak >NUL\r\n'
+            f'    GOTO wait\r\n'
+            f')\r\n'
+            f'"{new_path}" /SILENT\r\n'
+        )
+        fd, bat_path = tempfile.mkstemp(suffix=".bat")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(script)
+        import subprocess
+        subprocess.Popen(
+            ["cmd.exe", "/c", bat_path],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            close_fds=True,
         )
         quit_fn()
         return
