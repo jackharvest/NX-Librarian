@@ -201,11 +201,14 @@ def download_release(url: str, progress_cb=None):
         resp.raise_for_status()
 
         total = int(resp.headers.get("content-length", 0))
-        suffix = os.path.splitext(url.split("/")[-1])[1] or ".bin"
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        # Preserve the original filename so is_installer detection works.
+        # e.g. NX-Librarian-v3.0.0-beta.26-Windows-Setup.exe → "setup" present.
+        filename = url.split("/")[-1] or "update.bin"
+        tmp_dir  = tempfile.mkdtemp()
+        tmp_path = os.path.join(tmp_dir, filename)
 
         downloaded = 0
-        with os.fdopen(fd, "wb") as fh:
+        with open(tmp_path, "wb") as fh:
             for chunk in resp.iter_content(chunk_size=65536):
                 if chunk:
                     fh.write(chunk)
