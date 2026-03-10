@@ -1,10 +1,9 @@
 """
-ui/mode_select.py — Full-height Nintendo Switch color panel selector.
+ui/mode_select.py — Mode selection screen.
 
-Three full-screen panels side by side:
-  Red   → Base Games
-  Blue  → Updates
-  Green → DLC & Add-Ons
+Three Canvas panels on a pure black background.  Each panel draws its
+own neon-outline icon (canvas primitives), glowing title/subtitle text,
+and an animated spotlight that sweeps down from the top on hover.
 """
 
 import configparser
@@ -16,186 +15,327 @@ import ui.tooltip as _tooltip
 
 _F = FONT_BOOST
 
-# Nintendo Switch inspired panel colors.
-# bg_h is a noticeably lighter/brighter shade for obvious hover feedback.
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+
+def _hex_to_rgb(h):
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _dim(hex_color, factor):
+    r, g, b = _hex_to_rgb(hex_color)
+    return f"#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}"
+
+
+# ---------------------------------------------------------------------------
+# Panel configuration
+# ---------------------------------------------------------------------------
+
 PANEL_CONFIG = {
     "base": {
         "title":   "BASE GAMES",
-        "emoji":   "🎮",
         "sub":     "NSP  ·  XCI",
-        "bg":      "#B8000F",
-        "bg_h":    "#F0001A",
+        "neon":    "#ff2244",
         "tooltip": "Your main game archive. Browse, rename, and verify base game files in NSP and XCI format.",
     },
     "updates": {
         "title":   "UPDATES",
-        "emoji":   "🔼",
         "sub":     "VERSION CONTROL",
-        "bg":      "#0050A8",
-        "bg_h":    "#0077FF",
+        "neon":    "#00aaff",
         "tooltip": "Manage game update patches. Check which versions you have and rename them to match your library.",
     },
     "dlc": {
         "title":   "DLC & ADD-ONS",
-        "emoji":   "🎁",
         "sub":     "ADD-ON CONTENT",
-        "bg":      "#007A33",
-        "bg_h":    "#00B84A",
+        "neon":    "#00ee77",
         "tooltip": "All your downloadable content in one place. Browse and organize add-on files for your Switch library.",
     },
 }
 
 MODE_ORDER = ["base", "updates", "dlc"]
 
+# Spotlight animation
+_ANIM_FRAMES   = 14
+_ANIM_STEP_MS  = 14
+_SPOTLIGHT_MAX = 0.54   # fraction of panel height
 
-class ColorPanel(tk.Frame):
-    """Full-height clickable color panel with obvious hover highlight."""
+
+# ---------------------------------------------------------------------------
+# GlowPanel
+# ---------------------------------------------------------------------------
+
+class GlowPanel(tk.Canvas):
+    """
+    Full-height neon panel.  Black background.  On hover a spotlight of the
+    panel's neon color sweeps down from the top and stops halfway.
+    Neon outline icons are drawn with canvas primitives (glow = wide dim
+    stroke behind a narrow bright stroke).
+    """
 
     def __init__(self, parent, mode, cfg, on_select, **kwargs):
-        super().__init__(parent, bg=cfg["bg"], cursor=HAND_CURSOR, **kwargs)
+        super().__init__(parent, bg="#000000",
+                         highlightthickness=0, bd=0,
+                         cursor=HAND_CURSOR, **kwargs)
         self.mode      = mode
         self.cfg       = cfg
         self.on_select = on_select
-        self._bg       = cfg["bg"]
-        self._bg_h     = cfg["bg_h"]
-        self._bg_widgets   = []   # every widget that needs bg updated
-        self._sub_labels   = []   # subtitle labels — fg also changes
-        self._build()
-        ComicTooltip(self, cfg.get("tooltip", cfg["title"]), accent_color=cfg["bg_h"])
+        self._hovered  = False
+        self._spot     = 0.0   # current spotlight fraction (0–_SPOTLIGHT_MAX)
+        self._anim_id  = None
+
+        self.bind("<Configure>", lambda e: self._redraw())
+        self.bind("<Button-1>",  lambda e: on_select(mode))
+        self.bind("<Enter>",     lambda e: self._hover_start())
+        self.bind("<Leave>",     lambda e: self._hover_leave(e))
+
+        ComicTooltip(self, cfg.get("tooltip", cfg["title"]),
+                     accent_color=cfg["neon"])
 
     # ------------------------------------------------------------------
-    # Build
+    # Hover / animation
     # ------------------------------------------------------------------
 
-    def _reg(self, widget, is_sub=False):
-        """Register widget for hover updates and return it."""
-        self._bg_widgets.append(widget)
-        if is_sub:
-            self._sub_labels.append(widget)
-        return widget
+    def _hover_start(self):
+        self._hovered = True
+        self._cancel_anim()
+        self._animate()
 
-    def _build(self):
-        self._reg(self)
-
-        # Top spacer — pushes content to vertical center
-        self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR)).pack(
-            fill="both", expand=True)
-
-        # Centered content block
-        c = self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR))
-        c.pack(fill="x", padx=40)
-
-        self._reg(tk.Label(c, text=self.cfg["emoji"],
-                           font=("Arial", 72 + _F * 2),
-                           bg=self._bg, cursor=HAND_CURSOR)).pack(anchor="center")
-
-        self._reg(tk.Label(c, text=self.cfg["title"],
-                           font=(UI_FONT, 26 + _F, "bold"),
-                           fg="#ffffff", bg=self._bg,
-                           cursor=HAND_CURSOR)).pack(anchor="center", pady=(22, 0))
-
-        # Subtitle — fg changes on hover for extra clarity
-        self._reg(tk.Label(c, text=self.cfg["sub"],
-                           font=(UI_FONT, 11 + _F),
-                           fg="#aaaaaa", bg=self._bg,
-                           cursor=HAND_CURSOR),
-                  is_sub=True).pack(anchor="center", pady=(10, 0))
-
-        # Bottom spacer
-        self._reg(tk.Frame(self, bg=self._bg, cursor=HAND_CURSOR)).pack(
-            fill="both", expand=True)
-
-        # Wire click + hover to every registered widget
-        for w in self._bg_widgets:
-            try:
-                w.bind("<Button-1>", lambda e, m=self.mode: self.on_select(m))
-                w.bind("<Enter>",    lambda e: self._set_hover(True))
-                w.bind("<Leave>",    lambda e: self._on_leave(e))
-            except Exception:
-                pass
-
-    # ------------------------------------------------------------------
-    # Hover
-    # ------------------------------------------------------------------
-
-    def _set_hover(self, on):
-        bg = self._bg_h if on else self._bg
-        for w in self._bg_widgets:
-            try:
-                w.config(bg=bg)
-            except Exception:
-                pass
-        # Subtitle: dim grey at rest → bright white on hover
-        fg_sub = "#ffffff" if on else "#aaaaaa"
-        for w in self._sub_labels:
-            try:
-                w.config(fg=fg_sub)
-            except Exception:
-                pass
-
-    def _on_leave(self, event):
-        """Only de-hover when cursor truly exits the panel bounds."""
+    def _hover_leave(self, event):
         try:
-            px = self.winfo_rootx()
-            py = self.winfo_rooty()
-            pw = self.winfo_width()
-            ph = self.winfo_height()
-            if not (px <= event.x_root <= px + pw and
-                    py <= event.y_root <= py + ph):
-                self._set_hover(False)
+            if (self.winfo_rootx() <= event.x_root <= self.winfo_rootx() + self.winfo_width() and
+                    self.winfo_rooty() <= event.y_root <= self.winfo_rooty() + self.winfo_height()):
+                return
         except Exception:
-            self._set_hover(False)
+            pass
+        self._hovered = False
+        self._cancel_anim()
+        self._spot = 0.0
+        self._redraw()
+
+    def _animate(self):
+        step = _SPOTLIGHT_MAX / _ANIM_FRAMES
+        self._spot = min(self._spot + step, _SPOTLIGHT_MAX)
+        self._redraw()
+        if self._spot < _SPOTLIGHT_MAX:
+            self._anim_id = self.after(_ANIM_STEP_MS, self._animate)
+
+    def _cancel_anim(self):
+        if self._anim_id:
+            self.after_cancel(self._anim_id)
+            self._anim_id = None
+
+    # ------------------------------------------------------------------
+    # Render
+    # ------------------------------------------------------------------
+
+    def _redraw(self):
+        self.delete("all")
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w < 4 or h < 4:
+            return
+
+        cx  = w // 2
+        cy  = h // 2
+        cfg = self.cfg
+        neon     = cfg["neon"]
+        glow_col = _dim(neon, 0.35)
+        sub_col  = _dim(neon, 0.70)
+
+        # ── Spotlight from top ────────────────────────────────────────
+        if self._spot > 0:
+            sh = int(self._spot * h)
+            nr, ng, nb = _hex_to_rgb(neon)
+            stripe = 4
+            for y in range(0, sh, stripe):
+                t = 1.0 - y / sh
+                t = t * t              # quadratic: fast at top, tapers off
+                intensity = 0.28 * t
+                r = int(nr * intensity)
+                g = int(ng * intensity)
+                b = int(nb * intensity)
+                y2 = min(y + stripe, sh)
+                self.create_rectangle(0, y, w, y2,
+                                      fill=f"#{r:02x}{g:02x}{b:02x}",
+                                      outline="")
+
+        # ── Neon icon ─────────────────────────────────────────────────
+        icon_cy = cy - 68
+        if self.mode == "base":
+            self._icon_controller(cx, icon_cy, neon, glow_col)
+        elif self.mode == "updates":
+            self._icon_update(cx, icon_cy, neon, glow_col)
+        else:
+            self._icon_gift(cx, icon_cy, neon, glow_col)
+
+        # ── Title with glow shadow ────────────────────────────────────
+        title_y   = cy + 32
+        title_fnt = (UI_FONT, 28 + _F, "bold")
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            self.create_text(cx + dx, title_y + dy,
+                             text=cfg["title"], font=title_fnt,
+                             fill=glow_col, anchor="center")
+        self.create_text(cx, title_y,
+                         text=cfg["title"], font=title_fnt,
+                         fill=neon, anchor="center")
+
+        # ── Subtitle ─────────────────────────────────────────────────
+        self.create_text(cx, cy + 70,
+                         text=cfg["sub"],
+                         font=(UI_FONT, 11 + _F),
+                         fill=sub_col, anchor="center")
+
+    # ------------------------------------------------------------------
+    # Icon drawing helpers
+    # ------------------------------------------------------------------
+
+    def _rrect(self, x1, y1, x2, y2, r, color, lw):
+        """Rounded-rectangle outline."""
+        kw = dict(outline=color, width=lw, style="arc")
+        self.create_arc(x1,       y1,       x1+2*r, y1+2*r, start=90,  extent=90, **kw)
+        self.create_arc(x2-2*r,   y1,       x2,     y1+2*r, start=0,   extent=90, **kw)
+        self.create_arc(x2-2*r,   y2-2*r,   x2,     y2,     start=270, extent=90, **kw)
+        self.create_arc(x1,       y2-2*r,   x1+2*r, y2,     start=180, extent=90, **kw)
+        self.create_line(x1+r, y1, x2-r, y1, fill=color, width=lw)
+        self.create_line(x2, y1+r, x2, y2-r, fill=color, width=lw)
+        self.create_line(x1+r, y2, x2-r, y2, fill=color, width=lw)
+        self.create_line(x1, y1+r, x1, y2-r, fill=color, width=lw)
+
+    def _stroke(self, draw_fn, neon, glow):
+        """Draw twice: thick dim glow behind, thin bright on top."""
+        draw_fn(glow, 6)
+        draw_fn(neon, 2)
+
+    # ── Controller ────────────────────────────────────────────────────
+
+    def _icon_controller(self, cx, cy, neon, glow):
+        def body(col, lw):
+            self._rrect(cx-42, cy-20, cx+42, cy+20, 10, col, lw)
+
+        def left_grip(col, lw):
+            self.create_arc(cx-42, cy+8, cx-14, cy+44,
+                            start=0, extent=180, outline=col, width=lw, style="arc")
+
+        def right_grip(col, lw):
+            self.create_arc(cx+14, cy+8, cx+42, cy+44,
+                            start=0, extent=180, outline=col, width=lw, style="arc")
+
+        def left_stick(col, lw):
+            self.create_oval(cx-30, cy-13, cx-14, cy+3, outline=col, width=lw)
+
+        def dpad(col, lw):
+            dpx, dpy, s = cx-8, cy+10, 8
+            self.create_line(dpx-s, dpy, dpx+s, dpy, fill=col, width=lw)
+            self.create_line(dpx, dpy-s, dpx, dpy+s, fill=col, width=lw)
+
+        def right_stick(col, lw):
+            self.create_oval(cx+14, cy, cx+30, cy+16, outline=col, width=lw)
+
+        def buttons(col, lw):
+            for bx, by in [(cx+30, cy-8), (cx+22, cy-16), (cx+22, cy), (cx+14, cy-8)]:
+                self.create_oval(bx-4, by-4, bx+4, by+4, outline=col, width=lw)
+
+        for fn in (body, left_grip, right_grip, left_stick, dpad, right_stick, buttons):
+            self._stroke(fn, neon, glow)
+
+    # ── Update / triangle-in-rounded-square ───────────────────────────
+
+    def _icon_update(self, cx, cy, neon, glow):
+        def square(col, lw):
+            self._rrect(cx-38, cy-38, cx+38, cy+38, 12, col, lw)
+
+        def triangle(col, lw):
+            pts = [cx, cy-20,  cx+22, cy+16,  cx-22, cy+16]
+            self.create_polygon(*pts, outline=col, fill="", width=lw)
+
+        for fn in (square, triangle):
+            self._stroke(fn, neon, glow)
+
+    # ── Gift box ──────────────────────────────────────────────────────
+
+    def _icon_gift(self, cx, cy, neon, glow):
+        lid_top  = cy - 44
+        lid_bot  = cy - 28
+        box_bot  = cy + 32
+
+        def box(col, lw):
+            self.create_rectangle(cx-32, lid_bot, cx+32, box_bot,
+                                   outline=col, width=lw, fill="")
+
+        def lid(col, lw):
+            self.create_rectangle(cx-36, lid_top, cx+36, lid_bot,
+                                   outline=col, width=lw, fill="")
+
+        def ribbons(col, lw):
+            # vertical ribbon
+            self.create_line(cx, lid_top, cx, box_bot, fill=col, width=lw)
+            # horizontal ribbon at lid joint
+            self.create_line(cx-36, lid_bot, cx+36, lid_bot, fill=col, width=lw)
+
+        def bow(col, lw):
+            # Left loop
+            self.create_arc(cx-28, lid_top-22, cx+2, lid_top+4,
+                            start=0, extent=270, outline=col, width=lw, style="arc")
+            # Right loop
+            self.create_arc(cx-2, lid_top-22, cx+28, lid_top+4,
+                            start=270, extent=270, outline=col, width=lw, style="arc")
+
+        for fn in (box, lid, ribbons, bow):
+            self._stroke(fn, neon, glow)
 
 
-_BAR_BG     = "#151d33"
-_BAR_BORDER = "#2a3f5f"
+# ---------------------------------------------------------------------------
+# Status-bar constants
+# ---------------------------------------------------------------------------
 
+_BAR_BG     = "#0a0f1a"
+_BAR_BORDER = "#1a2535"
+
+
+# ---------------------------------------------------------------------------
+# ModeSelectScreen
+# ---------------------------------------------------------------------------
 
 class ModeSelectScreen(tk.Frame):
-    """Three full-height Nintendo Switch color panels, exactly equal width."""
+    """Three full-height neon panels, exactly equal width."""
 
     def __init__(self, parent, on_select, logo_img=None, **kwargs):
-        super().__init__(parent, bg="#0a0a14", **kwargs)
-        self._on_select    = on_select
-        self._pre_scan     = tk.BooleanVar(value=self._load_pre_scan())
-        self._tooltips     = tk.BooleanVar(value=self._load_tooltips())
-        self._cache_after  = None
+        super().__init__(parent, bg="#000000", **kwargs)
+        self._on_select   = on_select
+        self._pre_scan    = tk.BooleanVar(value=self._load_pre_scan())
+        self._tooltips    = tk.BooleanVar(value=self._load_tooltips())
+        self._cache_after = None
         _tooltip.set_enabled(self._tooltips.get())
         self._build()
 
     def _build(self):
-        container = tk.Frame(self, bg="#000000")
+        container = tk.Frame(self, bg="#111111")
         container.pack(fill="both", expand=True)
 
-        # uniform="panels" forces all three columns to the same width
-        # regardless of content — this is the key fix for unequal sizing.
         for i in range(3):
             container.columnconfigure(i, weight=1, uniform="panels")
         container.rowconfigure(0, weight=1)
 
         for idx, mode in enumerate(MODE_ORDER):
-            panel = ColorPanel(
-                container, mode, PANEL_CONFIG[mode], self._on_select
-            )
-            # 2px black gap between panels (container bg shows through)
+            panel = GlowPanel(container, mode, PANEL_CONFIG[mode], self._on_select)
             panel.grid(row=0, column=idx, sticky="nsew",
-                       padx=(0, 2) if idx < len(MODE_ORDER) - 1 else 0)
+                       padx=(0, 1) if idx < len(MODE_ORDER) - 1 else 0)
 
         self._build_statusbar()
 
     # ------------------------------------------------------------------
-    # Pre-Scan preference persistence
+    # Preference persistence (unchanged)
     # ------------------------------------------------------------------
 
     def _load_pre_scan(self) -> bool:
-        """Load pre_scan setting; default ON when any folder path is cached."""
         try:
             cfg = configparser.ConfigParser()
             if os.path.exists(CONFIG_FILE):
                 cfg.read(CONFIG_FILE)
                 if cfg.has_option("Settings", "pre_scan"):
                     return cfg.getboolean("Settings", "pre_scan")
-                # First run — default ON if any folder is already configured
                 folders = cfg.options("Folders") if cfg.has_section("Folders") else []
                 return any(cfg.get("Folders", k, fallback="") for k in folders)
         except Exception:
@@ -256,22 +396,18 @@ class ModeSelectScreen(tk.Frame):
         bar.columnconfigure(1, weight=0)
         bar.columnconfigure(2, weight=1)
 
-        # Left — hint / sync status
         self._status_lbl = tk.Label(bar, text="Select a mode to get started",
                                     bg=_BAR_BG, fg="#6b7280",
                                     font=(UI_FONT, 9 + _F))
         self._status_lbl.grid(row=0, column=0, sticky="w", padx=(24, 0), pady=10)
 
-        # Center — copyright · version
         tk.Label(bar, text=f"{APP_COPYRIGHT}  ·  v{APP_VERSION}",
-                 bg=_BAR_BG, fg="#4b5563",
+                 bg=_BAR_BG, fg="#3d4a5c",
                  font=(UI_FONT, 8 + _F)).grid(row=0, column=1, pady=10)
 
-        # Right — Pre-Scan toggle · cache timer · sync button
         right = tk.Frame(bar, bg=_BAR_BG)
         right.grid(row=0, column=2, sticky="e", padx=(0, 24), pady=10)
 
-        # Pre-Scan toggle chip
         self._prescan_lbl = tk.Label(right, bg=_BAR_BG, cursor=HAND_CURSOR,
                                      font=(UI_FONT, 8 + _F, "bold"), padx=8, pady=2)
         self._prescan_lbl.pack(side="left", padx=(0, 14))
@@ -283,7 +419,6 @@ class ModeSelectScreen(tk.Frame):
                      "and browse the last cached results instead.",
                      accent_color="#60a5fa")
 
-        # Tooltips toggle chip
         self._tooltip_lbl = tk.Label(right, bg=_BAR_BG, cursor=HAND_CURSOR,
                                      font=(UI_FONT, 8 + _F, "bold"), padx=8, pady=2)
         self._tooltip_lbl.pack(side="left", padx=(0, 14))
@@ -294,7 +429,6 @@ class ModeSelectScreen(tk.Frame):
                      "Your preference is saved and restored on next launch.",
                      accent_color="#60a5fa")
 
-        # Cache age timer
         self._cache_lbl = tk.Label(right, bg=_BAR_BG, fg="#6b7280",
                                    font=(UI_FONT, 8 + _F))
         self._cache_lbl.pack(side="left", padx=(0, 20))
@@ -304,7 +438,6 @@ class ModeSelectScreen(tk.Frame):
                      "A fresh database ensures accurate game names and metadata.",
                      accent_color="#6b7280")
 
-        # Sync button
         sync_btn = tk.Label(right, text="🔄 SYNC DATABASE",
                             bg=_BAR_BG, fg="#60a5fa",
                             font=(UI_FONT, 8 + _F, "bold"),
@@ -323,7 +456,7 @@ class ModeSelectScreen(tk.Frame):
         on = self._pre_scan.get()
         self._prescan_lbl.config(
             text="⚡ Pre-Scan  ON" if on else "⚡ Pre-Scan  OFF",
-            bg="#1e3a5f" if on else "#2a2a3f",
+            bg="#152240" if on else "#1a1a2a",
             fg="#60a5fa" if on else "#6b7280",
         )
 
@@ -336,7 +469,7 @@ class ModeSelectScreen(tk.Frame):
         on = self._tooltips.get()
         self._tooltip_lbl.config(
             text="💬 Tooltips  ON" if on else "💬 Tooltips  OFF",
-            bg="#1e3a5f" if on else "#2a2a3f",
+            bg="#152240" if on else "#1a1a2a",
             fg="#60a5fa" if on else "#6b7280",
         )
 
@@ -347,7 +480,6 @@ class ModeSelectScreen(tk.Frame):
         self._refresh_tooltip_chip()
 
     def _tick_cache(self):
-        """Update the cache age label every 60 seconds."""
         try:
             from db import cache_age_string
             self._cache_lbl.config(text=cache_age_string())

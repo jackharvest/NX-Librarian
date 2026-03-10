@@ -167,7 +167,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "NX-Librarian ${{ github.ref_name }}"
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: CHANGELOG.md
           files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
