@@ -11,7 +11,7 @@
 Unicode True
 
 !define APP_NAME      "NX-Librarian"
-!define APP_VERSION   "3.0.0-beta.29"
+!define APP_VERSION   "3.0.0-beta.30"
 !define APP_EXE       "NX-Librarian.exe"
 
 Name "${APP_NAME} ${APP_VERSION}"

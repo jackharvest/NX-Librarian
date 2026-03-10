@@ -29,6 +29,15 @@ def _dim(hex_color, factor):
     return f"#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}"
 
 
+def _lighten(hex_color, factor):
+    """Blend hex_color toward white by factor (0=unchanged, 1=white)."""
+    r, g, b = _hex_to_rgb(hex_color)
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 # ---------------------------------------------------------------------------
 # Panel configuration
 # ---------------------------------------------------------------------------
@@ -38,18 +47,21 @@ PANEL_CONFIG = {
         "title":   "BASE GAMES",
         "sub":     "NSP  ·  XCI",
         "neon":    "#ff2244",
+        "icon":    "🎮",
         "tooltip": "Your main game archive. Browse, rename, and verify base game files in NSP and XCI format.",
     },
     "updates": {
         "title":   "UPDATES",
         "sub":     "VERSION CONTROL",
         "neon":    "#00aaff",
+        "icon":    "🔄",
         "tooltip": "Manage game update patches. Check which versions you have and rename them to match your library.",
     },
     "dlc": {
         "title":   "DLC & ADD-ONS",
         "sub":     "ADD-ON CONTENT",
         "neon":    "#00ee77",
+        "icon":    "🎁",
         "tooltip": "All your downloadable content in one place. Browse and organize add-on files for your Switch library.",
     },
 }
@@ -97,9 +109,19 @@ class GlowPanel(tk.Canvas):
     # Hover / animation
     # ------------------------------------------------------------------
 
+    def _clear_spotlight(self):
+        """Immediately extinguish spotlight — called by siblings on hover."""
+        self._hovered = False
+        self._cancel_anim()
+        self._spot = 0.0
+        self._redraw()
+
     def _hover_start(self):
         self._hovered = True
         self._cancel_anim()
+        # Force siblings to clear so a stuck spotlight can't linger
+        for sib in getattr(self, "_siblings", []):
+            sib._clear_spotlight()
         self._animate()
 
     def _hover_leave(self, event):
@@ -115,6 +137,20 @@ class GlowPanel(tk.Canvas):
         self._redraw()
 
     def _animate(self):
+        # Sticky hover fix: verify cursor is still inside this widget
+        try:
+            mx = self.winfo_pointerx() - self.winfo_rootx()
+            my = self.winfo_pointery() - self.winfo_rooty()
+            if not (0 <= mx < self.winfo_width() and 0 <= my < self.winfo_height()):
+                self._hovered = False
+        except Exception:
+            pass
+
+        if not self._hovered:
+            self._spot = 0.0
+            self._redraw()
+            return
+
         step = _SPOTLIGHT_MAX / _ANIM_FRAMES
         self._spot = min(self._spot + step, _SPOTLIGHT_MAX)
         self._redraw()
@@ -161,129 +197,49 @@ class GlowPanel(tk.Canvas):
                                       fill=f"#{r:02x}{g:02x}{b:02x}",
                                       outline="")
 
-        # ── Neon icon ─────────────────────────────────────────────────
-        icon_cy = cy - 68
-        if self.mode == "base":
-            self._icon_controller(cx, icon_cy, neon, glow_col)
-        elif self.mode == "updates":
-            self._icon_update(cx, icon_cy, neon, glow_col)
-        else:
-            self._icon_gift(cx, icon_cy, neon, glow_col)
+        # ── Neon icon (emoji with glow) ───────────────────────────────
+        icon_y   = cy - 60
+        icon_fnt = (UI_FONT, 54)
+        for dist, factor in ((8, 0.15), (5, 0.28), (3, 0.45), (1, 0.65)):
+            gc = _dim(neon, factor)
+            for dx, dy in ((-dist, 0), (dist, 0), (0, -dist), (0, dist),
+                           (-dist, -dist), (dist, -dist), (-dist, dist), (dist, dist)):
+                self.create_text(cx + dx, icon_y + dy,
+                                 text=cfg["icon"], font=icon_fnt,
+                                 fill=gc, anchor="center")
+        self.create_text(cx, icon_y, text=cfg["icon"], font=icon_fnt,
+                         fill=_lighten(neon, 0.82), anchor="center")
 
-        # ── Title with glow shadow ────────────────────────────────────
+        # ── Title with multi-layer neon glow ─────────────────────────
         title_y   = cy + 32
         title_fnt = (UI_FONT, 28 + _F, "bold")
-        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
-            self.create_text(cx + dx, title_y + dy,
-                             text=cfg["title"], font=title_fnt,
-                             fill=glow_col, anchor="center")
+        # Outer → inner glow rings: larger offset = dimmer, smaller = brighter
+        for dist, factor in ((6, 0.18), (4, 0.28), (2, 0.45), (1, 0.65)):
+            gc = _dim(neon, factor)
+            for dx, dy in ((-dist, 0), (dist, 0), (0, -dist), (0, dist),
+                           (-dist, -dist), (dist, -dist), (-dist, dist), (dist, dist)):
+                self.create_text(cx + dx, title_y + dy,
+                                 text=cfg["title"], font=title_fnt,
+                                 fill=gc, anchor="center")
+        # Near-white neon core
         self.create_text(cx, title_y,
                          text=cfg["title"], font=title_fnt,
-                         fill=neon, anchor="center")
+                         fill=_lighten(neon, 0.82), anchor="center")
 
-        # ── Subtitle ─────────────────────────────────────────────────
-        self.create_text(cx, cy + 70,
+        # ── Subtitle with glow ────────────────────────────────────────
+        sub_y = cy + 88
+        for dist, factor in ((3, 0.22), (2, 0.40), (1, 0.60)):
+            gc = _dim(neon, factor)
+            for dx, dy in ((-dist, 0), (dist, 0), (0, -dist), (0, dist)):
+                self.create_text(cx + dx, sub_y + dy,
+                                 text=cfg["sub"],
+                                 font=(UI_FONT, 11 + _F),
+                                 fill=gc, anchor="center")
+        self.create_text(cx, sub_y,
                          text=cfg["sub"],
                          font=(UI_FONT, 11 + _F),
-                         fill=sub_col, anchor="center")
+                         fill=_lighten(neon, 0.72), anchor="center")
 
-    # ------------------------------------------------------------------
-    # Icon drawing helpers
-    # ------------------------------------------------------------------
-
-    def _rrect(self, x1, y1, x2, y2, r, color, lw):
-        """Rounded-rectangle outline."""
-        kw = dict(outline=color, width=lw, style="arc")
-        self.create_arc(x1,       y1,       x1+2*r, y1+2*r, start=90,  extent=90, **kw)
-        self.create_arc(x2-2*r,   y1,       x2,     y1+2*r, start=0,   extent=90, **kw)
-        self.create_arc(x2-2*r,   y2-2*r,   x2,     y2,     start=270, extent=90, **kw)
-        self.create_arc(x1,       y2-2*r,   x1+2*r, y2,     start=180, extent=90, **kw)
-        self.create_line(x1+r, y1, x2-r, y1, fill=color, width=lw)
-        self.create_line(x2, y1+r, x2, y2-r, fill=color, width=lw)
-        self.create_line(x1+r, y2, x2-r, y2, fill=color, width=lw)
-        self.create_line(x1, y1+r, x1, y2-r, fill=color, width=lw)
-
-    def _stroke(self, draw_fn, neon, glow):
-        """Draw twice: thick dim glow behind, thin bright on top."""
-        draw_fn(glow, 6)
-        draw_fn(neon, 2)
-
-    # ── Controller ────────────────────────────────────────────────────
-
-    def _icon_controller(self, cx, cy, neon, glow):
-        def body(col, lw):
-            self._rrect(cx-42, cy-20, cx+42, cy+20, 10, col, lw)
-
-        def left_grip(col, lw):
-            self.create_arc(cx-42, cy+8, cx-14, cy+44,
-                            start=0, extent=180, outline=col, width=lw, style="arc")
-
-        def right_grip(col, lw):
-            self.create_arc(cx+14, cy+8, cx+42, cy+44,
-                            start=0, extent=180, outline=col, width=lw, style="arc")
-
-        def left_stick(col, lw):
-            self.create_oval(cx-30, cy-13, cx-14, cy+3, outline=col, width=lw)
-
-        def dpad(col, lw):
-            dpx, dpy, s = cx-8, cy+10, 8
-            self.create_line(dpx-s, dpy, dpx+s, dpy, fill=col, width=lw)
-            self.create_line(dpx, dpy-s, dpx, dpy+s, fill=col, width=lw)
-
-        def right_stick(col, lw):
-            self.create_oval(cx+14, cy, cx+30, cy+16, outline=col, width=lw)
-
-        def buttons(col, lw):
-            for bx, by in [(cx+30, cy-8), (cx+22, cy-16), (cx+22, cy), (cx+14, cy-8)]:
-                self.create_oval(bx-4, by-4, bx+4, by+4, outline=col, width=lw)
-
-        for fn in (body, left_grip, right_grip, left_stick, dpad, right_stick, buttons):
-            self._stroke(fn, neon, glow)
-
-    # ── Update / triangle-in-rounded-square ───────────────────────────
-
-    def _icon_update(self, cx, cy, neon, glow):
-        def square(col, lw):
-            self._rrect(cx-38, cy-38, cx+38, cy+38, 12, col, lw)
-
-        def triangle(col, lw):
-            pts = [cx, cy-20,  cx+22, cy+16,  cx-22, cy+16]
-            self.create_polygon(*pts, outline=col, fill="", width=lw)
-
-        for fn in (square, triangle):
-            self._stroke(fn, neon, glow)
-
-    # ── Gift box ──────────────────────────────────────────────────────
-
-    def _icon_gift(self, cx, cy, neon, glow):
-        lid_top  = cy - 44
-        lid_bot  = cy - 28
-        box_bot  = cy + 32
-
-        def box(col, lw):
-            self.create_rectangle(cx-32, lid_bot, cx+32, box_bot,
-                                   outline=col, width=lw, fill="")
-
-        def lid(col, lw):
-            self.create_rectangle(cx-36, lid_top, cx+36, lid_bot,
-                                   outline=col, width=lw, fill="")
-
-        def ribbons(col, lw):
-            # vertical ribbon
-            self.create_line(cx, lid_top, cx, box_bot, fill=col, width=lw)
-            # horizontal ribbon at lid joint
-            self.create_line(cx-36, lid_bot, cx+36, lid_bot, fill=col, width=lw)
-
-        def bow(col, lw):
-            # Left loop
-            self.create_arc(cx-28, lid_top-22, cx+2, lid_top+4,
-                            start=0, extent=270, outline=col, width=lw, style="arc")
-            # Right loop
-            self.create_arc(cx-2, lid_top-22, cx+28, lid_top+4,
-                            start=270, extent=270, outline=col, width=lw, style="arc")
-
-        for fn in (box, lid, ribbons, bow):
-            self._stroke(fn, neon, glow)
 
 
 # ---------------------------------------------------------------------------
@@ -318,10 +274,15 @@ class ModeSelectScreen(tk.Frame):
             container.columnconfigure(i, weight=1, uniform="panels")
         container.rowconfigure(0, weight=1)
 
+        panels = []
         for idx, mode in enumerate(MODE_ORDER):
             panel = GlowPanel(container, mode, PANEL_CONFIG[mode], self._on_select)
             panel.grid(row=0, column=idx, sticky="nsew",
                        padx=(0, 1) if idx < len(MODE_ORDER) - 1 else 0)
+            panels.append(panel)
+
+        for i, panel in enumerate(panels):
+            panel._siblings = [p for j, p in enumerate(panels) if j != i]
 
         self._build_statusbar()
 
