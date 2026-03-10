@@ -19,6 +19,7 @@ datas = [
     ('logo.png',                 '.'),
     ('logo_tophalf.png',         '.'),
     ('logo_fullbar_thinner.png', '.'),
+    ('icon.ico',                 '.'),
     ('assets',                   'assets'),
 ]
 

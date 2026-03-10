@@ -91,6 +91,13 @@ def main():
     def _launch():
         from app import NXLibrarianApp
         root = tk.Tk()
+        _here = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        _ico  = os.path.join(_here, "icon.ico")
+        if os.path.exists(_ico):
+            try:
+                root.iconbitmap(_ico)
+            except Exception:
+                pass
         NXLibrarianApp(root,
                        norm_v=_norm_v,
                        norm_t=_norm_t,

@@ -155,6 +155,12 @@ class SplashScreen:
             _bg_key = "#ffffff"   # Linux: white background
 
         self.root = tk.Tk()
+        _ico = os.path.join(_HERE, "icon.ico")
+        if os.path.exists(_ico):
+            try:
+                self.root.iconbitmap(_ico)
+            except Exception:
+                pass
         self.root.overrideredirect(True)   # Borderless
         self.root.attributes("-topmost", True)
         if _is_mac:
