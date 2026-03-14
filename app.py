@@ -123,55 +123,43 @@ class NXLibrarianApp:
     # ------------------------------------------------------------------
 
     def _show_hamburger_menu(self):
-        """Pop up the app menu from the hamburger button."""
-        menu = tk.Menu(self.root, tearoff=0,
-                       bg="#151d33", fg="#ffffff",
-                       activebackground="#60a5fa", activeforeground="#0a0a14",
-                       font=("Segoe UI", 10), bd=0, relief="flat")
+        """Pop up the custom-themed app menu from the hamburger button."""
+        # If menu is already open, clicking the button again just closes it
+        if getattr(self, '_hamburger_menu', None) and \
+                self._hamburger_menu.winfo_exists():
+            self._hamburger_menu._dismiss()
+            return
 
-        menu.add_command(label="  ⌂   Mode Select",
-                         command=self._show_mode_select, accelerator="ESC")
-        menu.add_separator()
-        menu.add_command(label="  ⛶   Fullscreen",
-                         command=self._toggle_fullscreen, accelerator="F11")
-        menu.add_command(label="  ⤢   Reset Size",
-                         command=self._reset_window_size)
-        menu.add_separator()
-        menu.add_command(label="  ⌨   Keyboard Shortcuts",
-                         command=self._show_shortcuts)
-        menu.add_command(label="  ⚙   Database Mirror",
-                         command=self._show_mirror_dialog)
+        from ui.hamburger_menu import HamburgerMenu
         from ui import icon_cache as _ic
-        art_label = "  🖼   Art Mode  ✓" if _ic.is_enabled() else "  🖼   Art Mode"
-        menu.add_command(label=art_label, command=self._toggle_art_mode)
-        menu.add_separator()
-        auto_lbl = "  🔔   Auto-Update  ✓" if self._auto_update else "  🔔   Auto-Update"
-        menu.add_command(label=auto_lbl, command=self._toggle_auto_update)
-        beta_lbl = "  🔬   Beta Channel  ✓" if self._beta_channel else "  🔬   Beta Channel"
-        menu.add_command(label=beta_lbl, command=self._toggle_beta_channel)
-        menu.add_command(label="  ↑    Check for Updates",
-                         command=self._manual_check_for_updates)
-        menu.add_separator()
-        menu.add_command(label="  📤   Export Settings",
-                         command=self._export_settings)
-        menu.add_command(label="  📥   Import Settings",
-                         command=self._import_settings)
-        menu.add_separator()
-        menu.add_command(label="  ℹ   About",
-                         command=self._show_about)
-        menu.add_command(label="  ★   Credits",
-                         command=self._show_credits)
-        menu.add_separator()
-        menu.add_command(label="  ✕   Exit",
-                         command=self.root.quit, accelerator="Ctrl+Q")
+
+        items = [
+            ("⌂",  "Mode Select",        "ESC",    self._show_mode_select,        None),
+            None,
+            ("⛶",  "Fullscreen",          "F11",    self._toggle_fullscreen,       None),
+            ("⤢",  "Reset Size",          None,     self._reset_window_size,       None),
+            None,
+            ("⌨",  "Keyboard Shortcuts",  None,     self._show_shortcuts,          None),
+            ("⚙",  "Database Mirror",     None,     self._show_mirror_dialog,      None),
+            ("🖼", "Art Mode",            None,     self._toggle_art_mode,         _ic.is_enabled()),
+            None,
+            ("🔔", "Auto-Update",         None,     self._toggle_auto_update,      self._auto_update),
+            ("🔬", "Beta Channel",        None,     self._toggle_beta_channel,     self._beta_channel),
+            ("↑",  "Check for Updates",   None,     self._manual_check_for_updates, None),
+            None,
+            ("📤", "Export Settings",     None,     self._export_settings,         None),
+            ("📥", "Import Settings",     None,     self._import_settings,         None),
+            None,
+            ("ℹ",  "About",              None,     self._show_about,              None),
+            ("★",  "Credits",            None,     self._show_credits,            None),
+            None,
+            ("✕",  "Exit",               "Ctrl+Q", self.root.quit,                None),
+        ]
 
         btn = self._hamburger_btn
-        x = btn.winfo_rootx()
-        y = btn.winfo_rooty() + btn.winfo_height()
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        anchor_x = btn.winfo_rootx() + btn.winfo_width()
+        y        = btn.winfo_rooty() + btn.winfo_height()
+        self._hamburger_menu = HamburgerMenu(self.root, items, anchor_x, y)
 
     def _toggle_fullscreen(self):
         """Toggle fullscreen mode."""
