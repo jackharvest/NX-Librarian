@@ -178,16 +178,8 @@ class NXLibrarianApp:
 
     def _show_about(self):
         """Show about dialog."""
-        from tkinter import messagebox
-        from constants import APP_VERSION
-        messagebox.showinfo("About NX-Librarian",
-            f"NX-Librarian v{APP_VERSION}\n\n"
-            "Nintendo Switch Archive Manager & Renamer\n\n"
-            "Manage, organize, and verify your game collection.\n"
-            "Support for base games, updates, and DLC.\n\n"
-            "Art Mode: toggle in-row banner art sourced from\n"
-            "the Nintendo eShop CDN via blawar/titledb.\n\n"
-            "© 2026 jackharvest / NX-Librarian Contributors")
+        from ui.about_dialog import show_about
+        show_about(self.root)
 
     def _show_credits(self):
         from ui.credits import show_credits
@@ -237,8 +229,10 @@ class NXLibrarianApp:
                     UpdateDialog(self._current_frame or self.root, t, a, n, h)
                 self.root.after(0, _show)
             else:
-                self.root.after(0, lambda: messagebox.showinfo(
-                    "Up to Date", "You're already running the latest version."))
+                def _show_uptodate():
+                    from ui.about_dialog import show_uptodate
+                    show_uptodate(self.root)
+                self.root.after(0, _show_uptodate)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -296,18 +290,8 @@ class NXLibrarianApp:
 
     def _show_shortcuts(self):
         """Show keyboard shortcuts dialog."""
-        from tkinter import messagebox
-        shortcuts = (
-            "KEYBOARD SHORTCUTS\n\n"
-            "Ctrl+S  —  Scan library\n"
-            "Ctrl+O  —  Browse folder\n"
-            "Ctrl+F  —  Focus search\n"
-            "F5      —  Refresh\n"
-            "ESC     —  Back to mode select\n"
-            "F11     —  Toggle fullscreen\n"
-            "Ctrl+Q  —  Quit"
-        )
-        messagebox.showinfo("Keyboard Shortcuts", shortcuts)
+        from ui.shortcuts_dialog import show_shortcuts
+        show_shortcuts(self.root)
 
     # ------------------------------------------------------------------
     # Keyboard Shortcuts
@@ -365,15 +349,8 @@ class NXLibrarianApp:
 
     def _trigger_search_focus(self):
         """Focus search field on current screen if available."""
-        if hasattr(self._current_frame, 'search_query'):
-            try:
-                for widget in self.root.winfo_descendants():
-                    if isinstance(widget, tk.Entry) and hasattr(widget, 'var'):
-                        if widget.var == self._current_frame.search_query:
-                            widget.focus_set()
-                            break
-            except:
-                pass
+        if hasattr(self._current_frame, '_search_entry'):
+            self._current_frame._search_entry.focus_set()
 
     # ------------------------------------------------------------------
     # Logo

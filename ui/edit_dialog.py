@@ -10,7 +10,10 @@ import os
 import re
 import tkinter as tk
 from tkinter import ttk, messagebox
-from constants import HAND_CURSOR
+from constants import HAND_CURSOR, UI_FONT, FONT_BOOST
+from ui.popup_utils import apply_window_theme
+
+_F = FONT_BOOST
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -196,7 +199,6 @@ class EditDialog(tk.Toplevel):
 
         # Centre on parent
         self.update_idletasks()
-        self.grab_set()
         px = parent_screen.winfo_rootx()
         py = parent_screen.winfo_rooty()
         pw = parent_screen.winfo_width()
@@ -204,6 +206,8 @@ class EditDialog(tk.Toplevel):
         x  = px + (pw - self.winfo_width())  // 2
         y  = py + (ph - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
+        apply_window_theme(self)
+        self.grab_set()
 
     # ── plan construction ──────────────────────────────────────────────────
 
@@ -270,18 +274,22 @@ class EditDialog(tk.Toplevel):
     # ── UI construction ────────────────────────────────────────────────────
 
     def _build_ui(self):
+        # True when at least one row will render a DLC candidate dropdown
+        self._has_dlc_combos = any(
+            e["is_dlc"] and e["dlc_candidates"] for e in self._plan)
+
         # ── Title bar ──────────────────────────────────────────────────────
         title_bar = tk.Frame(self, bg=_T["bg_card"],
                              highlightthickness=1, highlightbackground=_T["border"])
         title_bar.pack(fill="x")
 
         tk.Label(title_bar, text="✎  RENAME FILES",
-                 font=("Segoe UI", 13, "bold"),
+                 font=(UI_FONT, 13 + _F, "bold"),
                  fg=_T["text"], bg=_T["bg_card"],
                  padx=20, pady=14).pack(side="left")
 
         self._summary_lbl = tk.Label(title_bar, text="",
-                                     font=("Segoe UI", 9),
+                                     font=(UI_FONT, 9 + _F),
                                      fg=_T["text_dim"], bg=_T["bg_card"], padx=20)
         self._summary_lbl.pack(side="right")
 
@@ -293,22 +301,25 @@ class EditDialog(tk.Toplevel):
         sb_inner = tk.Frame(search_bar, bg=_T["bg_card"])
         sb_inner.pack(fill="x", padx=14, pady=8)
 
-        tk.Label(sb_inner, text="🔍", font=("Segoe UI", 10),
+        tk.Label(sb_inner, text="🔍", font=(UI_FONT, 10 + _F),
                  fg=_T["text_dim"], bg=_T["bg_card"]).pack(side="left", padx=(0, 6))
 
         self._search_entry = tk.Entry(sb_inner, textvariable=self._search_var,
-                                      font=("Segoe UI", 9),
-                                      bg=_T["bg_hover"], fg=_T["text"],
-                                      relief="solid", bd=1,
-                                      insertbackground=_T["accent"])
-        self._search_entry.pack(side="left", fill="x", expand=True)
+                                      font=(UI_FONT, 10 + _F),
+                                      bg=_T["bg"], fg=_T["text"],
+                                      relief="flat", bd=0,
+                                      insertbackground=_T["accent"],
+                                      highlightthickness=1,
+                                      highlightbackground=_T["border"],
+                                      highlightcolor=_T["accent"])
+        self._search_entry.pack(side="left", fill="x", expand=True, ipady=6)
         self._search_entry.focus_set()
 
         tk.Button(sb_inner, text="✕ Clear",
                   command=lambda: self._search_var.set(""),
                   bg=_T["border_lt"], fg=_T["text_dim"],
-                  relief="flat", font=("Segoe UI", 8),
-                  cursor=HAND_CURSOR, padx=8, pady=3).pack(side="left", padx=(8, 0))
+                  relief="flat", font=(UI_FONT, 9 + _F),
+                  cursor=HAND_CURSOR, padx=10, pady=5).pack(side="left", padx=(8, 0))
 
         # ── Column headers ─────────────────────────────────────────────────
         hdr = tk.Frame(self, bg=_T["border_lt"],
@@ -318,20 +329,35 @@ class EditDialog(tk.Toplevel):
         hdr_inner = tk.Frame(hdr, bg=_T["border_lt"])
         hdr_inner.pack(fill="x", padx=14, pady=6)
 
+        # Checkbox-width spacer so header text aligns with row content
         tk.Label(hdr_inner, text="", width=2,
                  bg=_T["border_lt"]).pack(side="left")
-        tk.Label(hdr_inner, text="CURRENT FILENAME",
-                 font=("Segoe UI", 8, "bold"), fg=_T["text_dim"],
-                 bg=_T["border_lt"], width=44, anchor="w").pack(side="left", padx=(4, 0))
+
+        # Left header — width=1 collapses natural size so expand splits space equally
+        left_hdr = tk.Frame(hdr_inner, bg=_T["border_lt"])
+        left_hdr.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        tk.Label(left_hdr, text="CURRENT FILENAME",
+                 font=(UI_FONT, 8 + _F, "bold"), fg=_T["text_dim"],
+                 bg=_T["border_lt"], anchor="w", width=1).pack(fill="x")
+
         tk.Label(hdr_inner, text="→",
-                 font=("Segoe UI", 9), fg=_T["text_muted"],
+                 font=(UI_FONT, 9 + _F), fg=_T["text_muted"],
                  bg=_T["border_lt"], width=3, anchor="center").pack(side="left")
-        tk.Label(hdr_inner, text="DB MATCH  (DLC only)",
-                 font=("Segoe UI", 8, "bold"), fg=_T["text_dim"],
-                 bg=_T["border_lt"], width=30, anchor="w").pack(side="left", padx=(4, 0))
-        tk.Label(hdr_inner, text="PROPOSED FILENAME  (click to edit)",
-                 font=("Segoe UI", 8, "bold"), fg=_T["text_dim"],
-                 bg=_T["border_lt"], anchor="w").pack(side="left", padx=(4, 0))
+
+        # Middle header — DLC only
+        if self._has_dlc_combos:
+            mid_hdr = tk.Frame(hdr_inner, bg=_T["border_lt"])
+            mid_hdr.pack(side="left", fill="x", expand=True, padx=(0, 4))
+            tk.Label(mid_hdr, text="DB MATCH  (DLC only)",
+                     font=(UI_FONT, 8 + _F, "bold"), fg=_T["text_dim"],
+                     bg=_T["border_lt"], anchor="w", width=1).pack(fill="x")
+
+        # Right header — always present, expands equally
+        right_hdr = tk.Frame(hdr_inner, bg=_T["border_lt"])
+        right_hdr.pack(side="left", fill="x", expand=True)
+        tk.Label(right_hdr, text="PROPOSED FILENAME  (click to edit)",
+                 font=(UI_FONT, 8 + _F, "bold"), fg=_T["text_dim"],
+                 bg=_T["border_lt"], anchor="w", width=1).pack(fill="x")
 
         # ── Scrollable row list ─────────────────────────────────────────────
         list_outer = tk.Frame(self, bg=_T["bg"])
@@ -379,26 +405,26 @@ class EditDialog(tk.Toplevel):
         tk.Button(fi, text="Select All",
                   command=self._select_all,
                   bg=_T["border_lt"], fg=_T["text_dim"],
-                  relief="flat", font=("Segoe UI", 9),
-                  cursor=HAND_CURSOR, padx=10, pady=4).pack(side="left", padx=(0, 6))
+                  relief="flat", font=(UI_FONT, 9 + _F),
+                  cursor=HAND_CURSOR, padx=10, pady=6).pack(side="left", padx=(0, 6))
 
         tk.Button(fi, text="Deselect All",
                   command=self._deselect_all,
                   bg=_T["border_lt"], fg=_T["text_dim"],
-                  relief="flat", font=("Segoe UI", 9),
-                  cursor=HAND_CURSOR, padx=10, pady=4).pack(side="left", padx=(0, 16))
+                  relief="flat", font=(UI_FONT, 9 + _F),
+                  cursor=HAND_CURSOR, padx=10, pady=6).pack(side="left", padx=(0, 16))
 
         tk.Button(fi, text="Close",
                   command=self.destroy,
                   bg=_T["border_lt"], fg=_T["text_dim"],
-                  relief="flat", font=("Segoe UI", 9, "bold"),
-                  cursor=HAND_CURSOR, padx=14, pady=4).pack(side="right")
+                  relief="flat", font=(UI_FONT, 9 + _F, "bold"),
+                  cursor=HAND_CURSOR, padx=14, pady=6).pack(side="right")
 
         self._rename_btn = tk.Button(fi, text="⟳  Rename Checked Files",
                                      command=self._do_rename,
                                      bg=_T["accent"], fg=_T["bg"],
-                                     relief="flat", font=("Segoe UI", 9, "bold"),
-                                     cursor=HAND_CURSOR, padx=14, pady=4)
+                                     relief="flat", font=(UI_FONT, 9 + _F, "bold"),
+                                     cursor=HAND_CURSOR, padx=14, pady=6)
         self._rename_btn.pack(side="right", padx=(0, 8))
 
     def _add_row(self, entry: dict, idx: int):
@@ -412,7 +438,7 @@ class EditDialog(tk.Toplevel):
         inner = tk.Frame(row, bg=bg)
         inner.pack(fill="x", padx=14, pady=7)
 
-        # Checkbox
+        # Checkbox (fixed — does not participate in column widths)
         chk = tk.Checkbutton(inner, variable=entry["var"],
                              bg=bg, activebackground=bg,
                              selectcolor="#ffffff",
@@ -422,58 +448,68 @@ class EditDialog(tk.Toplevel):
             chk.config(state="disabled")
             entry["var"].set(False)
 
-        # Current filename (fixed width, truncated with tooltip if long)
-        fname = entry["item"]["filename"]
-        display = fname if len(fname) <= 46 else fname[:43] + "…"
-        cur_lbl = tk.Label(inner, text=display, width=46, anchor="w",
-                           font=("Segoe UI", 9),
-                           fg=_T["text"] if entry["can_auto"] else _T["text_muted"],
-                           bg=bg)
-        cur_lbl.pack(side="left", padx=(6, 0))
-        if fname != display:
-            _add_tooltip(cur_lbl, fname)
+        # ── Left column: current filename (expands equally) ───────────────
+        left_col = tk.Frame(inner, bg=bg)
+        left_col.pack(side="left", fill="x", expand=True, padx=(4, 0))
 
-        # Arrow
-        tk.Label(inner, text="→", font=("Segoe UI", 10),
+        fname = entry["item"]["filename"]
+        tk.Label(left_col, text=fname, anchor="w",
+                 font=(UI_FONT, 9 + _F),
+                 fg=_T["text"] if entry["can_auto"] else _T["text_muted"],
+                 bg=bg, width=1).pack(fill="x")
+
+        # Arrow (fixed)
+        tk.Label(inner, text="→", font=(UI_FONT, 10 + _F),
                  fg=_T["text_muted"], bg=bg,
                  width=3, anchor="center").pack(side="left")
 
-        # DLC candidate dropdown (only for DLC items that have DB candidates)
-        if entry["is_dlc"] and entry["dlc_candidates"]:
-            combo_values = [
-                f"{name}  [{tid.upper()}]"
-                for _, name, tid, _ in entry["dlc_candidates"]
-            ]
-            combo = ttk.Combobox(inner, values=combo_values, state="readonly",
-                                 width=30, font=("Segoe UI", 9))
-            combo.current(0)
-            combo.pack(side="left", padx=(0, 6))
-            entry["dlc_combo"] = combo
+        # ── Middle column: DLC combo — present on every row when dialog has DLC
+        if self._has_dlc_combos:
+            mid_col = tk.Frame(inner, bg=bg)
+            mid_col.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-            def _on_pick(event, e=entry):
-                e["dlc_sel_idx"].set(e["dlc_combo"].current())
-                self._refresh_dlc_proposed(e)
+            if entry["is_dlc"] and entry["dlc_candidates"]:
+                combo_values = [
+                    f"{name}  [{tid.upper()}]"
+                    for _, name, tid, _ in entry["dlc_candidates"]
+                ]
+                combo = ttk.Combobox(mid_col, values=combo_values, state="readonly",
+                                     font=(UI_FONT, 9 + _F), width=1)
+                combo.current(0)
+                combo.pack(fill="x")
+                entry["dlc_combo"] = combo
 
-            combo.bind("<<ComboboxSelected>>", _on_pick)
+                def _on_pick(event, e=entry):
+                    e["dlc_sel_idx"].set(e["dlc_combo"].current())
+                    self._refresh_dlc_proposed(e)
 
-        # Proposed field
+                combo.bind("<<ComboboxSelected>>", _on_pick)
+
+        # ── Right column: proposed filename (expands equally) ─────────────
+        right_col = tk.Frame(inner, bg=bg)
+        right_col.pack(side="left", fill="x", expand=True)
+
         if entry["can_auto"]:
             prop_var = tk.StringVar(value=entry["proposed"])
             entry["prop_var"] = prop_var
-            prop_entry = tk.Entry(inner, textvariable=prop_var,
-                                  font=("Segoe UI", 9),
-                                  bg=_T["bg_hover"], fg=_T["text"],
-                                  relief="solid", bd=1,
-                                  insertbackground=_T["accent"])
-            prop_entry.pack(side="left", fill="x", expand=True)
+            prop_entry = tk.Entry(right_col, textvariable=prop_var,
+                                  font=(UI_FONT, 10 + _F),
+                                  bg=_T["bg"], fg=_T["text"],
+                                  relief="flat", bd=0,
+                                  insertbackground=_T["accent"],
+                                  highlightthickness=1,
+                                  highlightbackground=_T["border"],
+                                  highlightcolor=_T["accent"],
+                                  width=1)
+            prop_entry.pack(fill="x", ipady=4)
         else:
             qual = entry["quality"]
             reason = ("No title ID — rename manually"
                       if qual == "missing_tid"
                       else "No DB entry for this TID — rename manually")
-            tk.Label(inner, text=reason, anchor="w",
-                     font=("Segoe UI", 9, "italic"),
-                     fg=_T["text_muted"], bg=bg).pack(side="left", padx=(4, 0))
+            tk.Label(right_col, text=reason, anchor="w",
+                     font=(UI_FONT, 9 + _F, "italic"),
+                     fg=_T["text_muted"], bg=bg).pack(fill="x")
 
     def _on_wheel(self, event):
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
@@ -594,7 +630,7 @@ def _add_tooltip(widget, text: str):
         tip.wm_overrideredirect(True)
         tip.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 4}")
         tk.Label(tip, text=text,
-                 font=("Segoe UI", 8),
+                 font=(UI_FONT, 8 + _F),
                  bg="#1f2847", fg="#ffffff",
                  relief="solid", bd=1, padx=6, pady=3).pack()
 

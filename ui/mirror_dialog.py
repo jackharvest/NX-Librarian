@@ -13,6 +13,7 @@ import requests
 from constants import (
     CONFIG_FILE, DB_MIRRORS, DEFAULT_MIRROR, HAND_CURSOR, get_db_urls,
 )
+from ui.popup_utils import apply_window_theme
 
 _T = {
     "bg":         "#0a0a14",
@@ -76,6 +77,7 @@ class MirrorDialog(tk.Toplevel):
         x  = px + (pw - self.winfo_width())  // 2
         y  = py + (ph - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
+        apply_window_theme(self)
         self.grab_set()
 
     def _build_ui(self):

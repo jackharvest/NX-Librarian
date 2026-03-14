@@ -493,7 +493,7 @@ class BaseScreen(tk.Frame):
         tk.Label(left_frame, text="🔍", font=(UI_FONT, 11 + _F),
                  fg=THEME["text_muted"], bg=THEME["bg_secondary"]).pack(side="left", padx=(0, 6))
 
-        search_entry = tk.Entry(left_frame, textvariable=self.search_query,
+        self._search_entry = tk.Entry(left_frame, textvariable=self.search_query,
                                 font=(UI_FONT, 10 + _F),
                                 bg=THEME["bg_primary"], fg=THEME["text_primary"],
                                 relief="flat", bd=0,
@@ -501,8 +501,8 @@ class BaseScreen(tk.Frame):
                                 highlightthickness=1,
                                 highlightbackground=THEME["border_subtle"],
                                 highlightcolor=self.ACCENT_COLOR)
-        search_entry.pack(side="left", fill="x", expand=True, ipady=6)
-        ComicTooltip(search_entry,
+        self._search_entry.pack(side="left", fill="x", expand=True, ipady=6)
+        ComicTooltip(self._search_entry,
                      "Filter the table by filename. Results update instantly as you type. "
                      "Use Ctrl+F to jump here from anywhere.",
                      accent_color=self.ACCENT_COLOR)

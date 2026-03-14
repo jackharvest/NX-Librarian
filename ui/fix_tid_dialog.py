@@ -11,6 +11,7 @@ import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 from constants import HAND_CURSOR
+from ui.popup_utils import apply_window_theme
 
 _SAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -274,6 +275,7 @@ class FixTidDialog(tk.Toplevel):
         px, py = parent_screen.winfo_rootx(), parent_screen.winfo_rooty()
         pw, ph = parent_screen.winfo_width(), parent_screen.winfo_height()
         self.geometry(f"+{px + (pw - self.winfo_width()) // 2}+{py + (ph - self.winfo_height()) // 2}")
+        apply_window_theme(self)
         self.grab_set()
 
     # ── plan construction ──────────────────────────────────────────────────

@@ -8,6 +8,7 @@ that contributed to NX-Librarian.
 import tkinter as tk
 from tkinter import ttk
 from constants import UI_FONT, FONT_BOOST, APP_VERSION, APP_COPYRIGHT
+from ui.popup_utils import apply_window_theme
 
 _F  = FONT_BOOST
 _BG = "#0a0a14"
@@ -248,6 +249,7 @@ def show_credits(parent: tk.Misc):
     win.title("Credits & Acknowledgements — NX-Librarian")
     win.configure(bg=_BG)
     win.resizable(True, True)
+    apply_window_theme(win)
 
     W, H = 1100, 740
     sw = win.winfo_screenwidth()
